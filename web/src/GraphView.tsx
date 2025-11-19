@@ -26,7 +26,7 @@ export const GraphView: React.FC<Props> = ({ state }) => {
   const nodes: Node[] = state.nodes.map((n, index) => ({
     id: n.id,
     position: { x: (index % 3) * 200, y: Math.floor(index / 3) * 150 },
-    data: { label: `${n.label} (${n.type})` },
+    data: { label: `${n.label} (${n.type.toUpperCase()})` },
     style: {
       border: `2px solid ${statusColor(n.status)}`,
       background: '#111827',

@@ -6,9 +6,10 @@ import './index.css';
 
 const fetchState = async (): Promise<SystemState | null> => {
   try {
-    const res = await fetch('/.preflight/scan.json', { cache: 'no-cache' });
+    const res = await fetch('/api/state', { cache: 'no-cache' });
     if (!res.ok) {
-      console.error('Failed to fetch scan.json', res.statusText);
+      const message = await res.text();
+      console.error('Failed to fetch state', res.status, message);
       return null;
     }
     const json = (await res.json()) as SystemState;
@@ -40,7 +41,12 @@ export default function App() {
       <header>
         <div>
           <h1>Preflight Dashboard</h1>
-          <div style={{ color: '#94a3b8' }}>.preflight/scan.json is the single source of truth.</div>
+          <div style={{ color: '#94a3b8' }}>Serving data from the Rust API at /api/state.</div>
+          {state ? (
+            <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
+              Version {state.version} · Captured at {state.timestamp}
+            </div>
+          ) : null}
         </div>
         <div className={badge.className}>{badge.text}</div>
       </header>

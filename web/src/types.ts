@@ -1,4 +1,4 @@
-export type NodeType = 'OS' | 'Service' | 'Runtime' | 'Application' | 'Port' | 'File';
+export type NodeType = 'os' | 'service' | 'runtime' | 'application' | 'port' | 'file';
 export type Status = 'active' | 'inactive' | 'conflict';
 export type Relation = 'REQUIRES' | 'BINDS' | 'CONFLICTS';
 export type Severity = 'critical' | 'warning';
@@ -8,7 +8,7 @@ export interface Node {
   type: NodeType;
   label: string;
   status: Status;
-  metadata: Record<string, string>;
+  metadata: Record<string, unknown>;
 }
 
 export interface Edge {
@@ -18,7 +18,7 @@ export interface Edge {
 }
 
 export interface Issue {
-  id: number;
+  code: string;
   severity: Severity;
   title: string;
   description: string;
@@ -29,4 +29,6 @@ export interface SystemState {
   nodes: Node[];
   edges: Edge[];
   issues: Issue[];
+  version: string;
+  timestamp: string;
 }

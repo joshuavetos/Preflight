@@ -2,5 +2,8 @@
 /node_modules
 /dist
 /web/node_modules
+/.preflight/scan.json
+/.preflight/scan.json.tmp
 /.preflight/scan.json.bak
+/web/dist
 .DS_Store

@@ -2,6 +2,7 @@ mod graph;
 mod models;
 mod oracle;
 mod scanner;
+mod server;
 mod utils;
 
 use clap::{Parser, Subcommand};
@@ -48,20 +49,18 @@ fn simulate(command: &str) {
         println!("Simulation detected potential issues for `{command}`:");
         for issue in issues {
             println!(
-                "- [{}] {}: {}",
+                "- [{}] {} ({}): {}",
                 issue.severity.to_string(),
                 issue.title,
+                issue.code,
                 issue.suggestion
             );
         }
     }
 }
 
-fn dashboard_help() {
-    println!("Run 'npm run dev' inside the /web folder to launch the dashboard.");
-}
-
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Scan => {
@@ -71,7 +70,12 @@ fn main() {
             }
         }
         Commands::Simulate { command } => simulate(&command),
-        Commands::Dashboard => dashboard_help(),
+        Commands::Dashboard => {
+            if let Err(e) = server::run_dashboard_server().await {
+                eprintln!("Dashboard failed: {e}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 

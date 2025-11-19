@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/../web"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT/web"
 npm install
-npm run dev -- --host 0.0.0.0 --port 5173
+npm run build
+cd "$ROOT"
+cargo run --manifest-path core/Cargo.toml -- dashboard
