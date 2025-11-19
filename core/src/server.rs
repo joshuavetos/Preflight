@@ -36,7 +36,7 @@ fn dashboard_assets_root() -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(env_path));
     }
 
-    if let Ok(exe_dir) = std::env::current_exe()
+    if let Some(exe_dir) = std::env::current_exe()
         .ok()
         .and_then(|path| path.parent().map(PathBuf::from))
     {
