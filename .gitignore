@@ -1,0 +1,6 @@
+/target
+/node_modules
+/dist
+/web/node_modules
+/.preflight/scan.json.bak
+.DS_Store

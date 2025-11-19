@@ -1,0 +1,48 @@
+{
+  "nodes": [
+    {
+      "id": "os",
+      "type": "OS",
+      "label": "Linux",
+      "status": "active",
+      "metadata": {
+        "kernel": "5.x",
+        "auditor": "Tessrax Governance Kernel v16"
+      }
+    },
+    {
+      "id": "docker",
+      "type": "Service",
+      "label": "Docker Daemon",
+      "status": "inactive",
+      "metadata": {
+        "socket": "/var/run/docker.sock"
+      }
+    },
+    {
+      "id": "port8000",
+      "type": "Port",
+      "label": "Port 8000",
+      "status": "inactive",
+      "metadata": {
+        "protocol": "tcp"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "docker",
+      "to": "port8000",
+      "relation": "BINDS"
+    }
+  ],
+  "issues": [
+    {
+      "id": 1,
+      "severity": "warning",
+      "title": "Docker daemon inactive",
+      "description": "Docker socket was not reachable during the last scan.",
+      "suggestion": "Start the Docker service if container workloads are required."
+    }
+  ]
+}
