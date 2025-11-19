@@ -4,6 +4,8 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::path::Path;
+use std::process::Command;
+use std::str;
 use sysinfo::{System, SystemExt};
 
 #[cfg(unix)]
@@ -106,6 +108,143 @@ pub fn perform_scan() -> SystemState {
         status: docker_status,
         metadata: docker_metadata,
     });
+
+    //-------------------------------//
+    // PYTHON DETECTOR
+    //-------------------------------//
+    let python_version = Command::new("python")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                if let Ok(stdout) = str::from_utf8(&o.stdout) {
+                    let trimmed = stdout.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+                if let Ok(stderr) = str::from_utf8(&o.stderr) {
+                    let trimmed = stderr.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+            None
+        });
+
+    if let Some(version) = &python_version {
+        let mut metadata = HashMap::new();
+        metadata.insert("version".to_string(), json!(version));
+        nodes.push(Node {
+            id: "python".to_string(),
+            node_type: NodeType::Python,
+            label: format!("Python {version}"),
+            status: Status::Active,
+            metadata,
+        });
+    }
+
+    //-------------------------------//
+    // POSTGRES DETECTOR
+    //-------------------------------//
+    let postgres_output = Command::new("psql").arg("--version").output();
+    if let Ok(out) = postgres_output {
+        if out.status.success() {
+            let mut metadata = HashMap::new();
+            if let Ok(text) = str::from_utf8(&out.stdout) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    metadata.insert("version".to_string(), json!(trimmed));
+                }
+            }
+            nodes.push(Node {
+                id: "postgres".to_string(),
+                node_type: NodeType::Postgres,
+                label: "PostgreSQL".to_string(),
+                status: Status::Active,
+                metadata,
+            });
+        }
+    }
+
+    //-------------------------------//
+    // REDIS DETECTOR
+    //-------------------------------//
+    let redis_ping = Command::new("redis-cli").arg("PING").output();
+    if let Ok(out) = redis_ping {
+        if out.status.success() {
+            if let Ok(stdout) = str::from_utf8(&out.stdout) {
+                if stdout.trim().contains("PONG") {
+                    let mut metadata = HashMap::new();
+                    metadata.insert("reachable".to_string(), json!(true));
+                    nodes.push(Node {
+                        id: "redis".to_string(),
+                        node_type: NodeType::Redis,
+                        label: "Redis Server".to_string(),
+                        status: Status::Active,
+                        metadata,
+                    });
+                }
+            }
+        }
+    }
+
+    //-------------------------------//
+    // GPU DETECTOR (NVIDIA)
+    //-------------------------------//
+    let gpu_query = Command::new("nvidia-smi").output();
+    if let Ok(out) = gpu_query {
+        if out.status.success() {
+            let mut metadata = HashMap::new();
+            if let Ok(stdout) = str::from_utf8(&out.stdout) {
+                let trimmed = stdout.trim();
+                if !trimmed.is_empty() {
+                    metadata.insert("nvidia_smi".to_string(), json!(trimmed));
+                }
+            }
+            nodes.push(Node {
+                id: "gpu".to_string(),
+                node_type: NodeType::Gpu,
+                label: "GPU (NVIDIA)".to_string(),
+                status: Status::Active,
+                metadata,
+            });
+        }
+    }
+
+    //-------------------------------//
+    // DOCKER IMAGES DETECTOR
+    //-------------------------------//
+    let docker_images = Command::new("docker")
+        .arg("images")
+        .arg("--format")
+        .arg("{{.Repository}}:{{.Tag}}")
+        .output();
+
+    if let Ok(out) = docker_images {
+        if out.status.success() {
+            if let Ok(stdout) = str::from_utf8(&out.stdout) {
+                let images: Vec<String> = stdout
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(|line| line.to_string())
+                    .collect();
+                let mut metadata = HashMap::new();
+                metadata.insert("count".to_string(), json!(images.len()));
+                metadata.insert("list".to_string(), json!(images));
+                nodes.push(Node {
+                    id: "docker_images".to_string(),
+                    node_type: NodeType::DockerImages,
+                    label: "Docker Images".to_string(),
+                    status: Status::Active,
+                    metadata,
+                });
+            }
+        }
+    }
 
     let mut port_metadata = HashMap::new();
     port_metadata.insert("protocol".to_string(), json!("tcp"));
