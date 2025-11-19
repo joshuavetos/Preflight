@@ -123,4 +123,17 @@ pub fn derive_edges(state: &mut SystemState) {
             relation: Relation::REQUIRES,
         });
     }
+
+    //-------------------------------------------
+    // Node-level relationship: Python ↔ Docker Images
+    //-------------------------------------------
+    if state.nodes.iter().any(|n| n.id == "python")
+        && state.nodes.iter().any(|n| n.id == "docker_images")
+    {
+        state.edges.push(Edge {
+            from: "python".into(),
+            to: "docker_images".into(),
+            relation: Relation::REQUIRES,
+        });
+    }
 }

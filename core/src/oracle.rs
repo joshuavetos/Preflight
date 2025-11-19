@@ -1,4 +1,5 @@
 use crate::models::{Issue, Severity, Status, SystemState};
+use crate::risk::summarize_risk;
 use regex::Regex;
 
 pub fn evaluate(state: &SystemState) -> Vec<Issue> {
@@ -161,34 +162,90 @@ pub fn simulate_command(command: &str) -> Vec<Issue> {
     let mut issues = Vec::new();
     let normalized = command.to_lowercase();
 
-    let port_regex = Regex::new(r"(?P<port>\d{2,5})").expect("regex compilation cannot fail");
+    //-------------------------------------------
+    // ADVANCED PORT HEURISTICS
+    //-------------------------------------------
+    let port_regex = Regex::new(r"(?P<port>\d{2,5})").unwrap();
     for cap in port_regex.captures_iter(&normalized) {
-        if let Some(port_str) = cap.name("port") {
-            if let Ok(port) = port_str.as_str().parse::<u16>() {
-                if port == 8000 {
-                    issues.push(Issue {
-                        code: "SIM_PORT_8000_CONFLICT".to_string(),
+        if let Some(p) = cap.name("port") {
+            if let Ok(port) = p.as_str().parse::<u16>() {
+                match port {
+                    5432 => issues.push(Issue {
+                        code: "SIM_PG_PORT".into(),
                         severity: Severity::Warning,
-                        title: "Potential port 8000 conflict".to_string(),
-                        description: format!(
-                            "The simulated command `{command}` is expected to bind port 8000, which may already be in use."
-                        ),
-                        suggestion: "Choose a different host port or stop the conflicting service before running the command."
-                            .to_string(),
-                    });
+                        title: "Postgres port usage predicted".into(),
+                        description: "Command indicates an intention to bind/use port 5432".into(),
+                        suggestion: "Ensure postgres or workload does not conflict".into(),
+                    }),
+                    6379 => issues.push(Issue {
+                        code: "SIM_REDIS_PORT".into(),
+                        severity: Severity::Warning,
+                        title: "Redis port usage predicted".into(),
+                        description: "Command suggests binding redis default port".into(),
+                        suggestion: "Verify redis-server status".into(),
+                    }),
+                    8000 => issues.push(Issue {
+                        code: "SIM_PORT_8000".into(),
+                        severity: Severity::Warning,
+                        title: "Predicted port 8000 binding".into(),
+                        description: "Workload likely to conflict with local dev servers".into(),
+                        suggestion: "Free 8000 or switch service port".into(),
+                    }),
+                    _ => {}
                 }
             }
         }
     }
 
-    if normalized.contains("docker-compose") || normalized.contains("docker compose") {
+    //-------------------------------------------
+    // GPU HEURISTICS
+    //-------------------------------------------
+    if normalized.contains("--gpus") || normalized.contains("gpu") {
         issues.push(Issue {
-            code: "SIM_DOCKER_COMPOSE".to_string(),
+            code: "SIM_GPU_ACCESS".into(),
             severity: Severity::Warning,
-            title: "Docker Compose simulation".to_string(),
-            description:
-                "Docker Compose workloads were simulated; ensure Docker is running before execution.".to_string(),
-            suggestion: "Start Docker and confirm required images are available locally.".to_string(),
+            title: "GPU passthrough requested".into(),
+            description: "The command uses GPU flags which require nvidia-container-runtime".into(),
+            suggestion: "Ensure nvidia drivers + container toolkit installed".into(),
+        });
+    }
+
+    //-------------------------------------------
+    // MEMORY + RESOURCE HEURISTICS
+    //-------------------------------------------
+    if normalized.contains("docker compose") && normalized.contains("up") {
+        issues.push(Issue {
+            code: "SIM_COMPOSE_RESOURCE".into(),
+            severity: Severity::Warning,
+            title: "Docker Compose workload may exceed system memory".into(),
+            description: "Multiple containers may exceed available RAM or swap".into(),
+            suggestion: "Check compose yaml for memory limits".into(),
+        });
+    }
+
+    //-------------------------------------------
+    // PYTHON / VENV HEURISTICS
+    //-------------------------------------------
+    if normalized.contains("python") && normalized.contains("-m") {
+        issues.push(Issue {
+            code: "SIM_PYTHON_VENV".into(),
+            severity: Severity::Warning,
+            title: "Python module execution predicted".into(),
+            description: "Command may require an activated virtualenv".into(),
+            suggestion: "Ensure `.venv` is activated or dependencies installed".into(),
+        });
+    }
+
+    //-------------------------------------------
+    // DOCKER IMAGE CHECKS
+    //-------------------------------------------
+    if normalized.contains("docker build") {
+        issues.push(Issue {
+            code: "SIM_DOCKER_BUILD".into(),
+            severity: Severity::Warning,
+            title: "Docker build predicted".into(),
+            description: "Build operations may fail without proper Dockerfile context".into(),
+            suggestion: "Ensure Dockerfile exists in build directory".into(),
         });
     }
 
@@ -235,6 +292,24 @@ pub fn simulate_command(command: &str) -> Vec<Issue> {
             title: "Potential Redis port conflict".into(),
             description: "Command suggests binding or using port 6379".into(),
             suggestion: "Ensure 6379 is free".into(),
+        });
+    }
+
+    //-------------------------------------------
+    // RISK SUMMARY (ADDED AS SYNTHETIC ISSUE)
+    //-------------------------------------------
+    if !issues.is_empty() {
+        let score = summarize_risk(&issues);
+        issues.push(Issue {
+            code: "SIM_RISK_SUMMARY".into(),
+            severity: if score >= 70 {
+                Severity::Critical
+            } else {
+                Severity::Warning
+            },
+            title: format!("Overall risk score: {score}"),
+            description: format!("Based on predicted behaviors in `{command}`."),
+            suggestion: "Review issues above to lower operational risk".into(),
         });
     }
 
