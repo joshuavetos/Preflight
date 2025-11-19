@@ -23,6 +23,10 @@ export const GraphView: React.FC<Props> = ({ state }) => {
     return <div className="panel">No scan data available.</div>;
   }
 
+  const highlightedNodes = new Set(
+    state.nodes.filter((node) => node.status === 'conflict').map((node) => node.id)
+  );
+
   const nodes: Node[] = state.nodes.map((n, index) => ({
     id: n.id,
     position: { x: (index % 3) * 200, y: Math.floor(index / 3) * 150 },
@@ -31,6 +35,9 @@ export const GraphView: React.FC<Props> = ({ state }) => {
       border: `2px solid ${statusColor(n.status)}`,
       background: '#111827',
       color: '#e2e8f0',
+      boxShadow: highlightedNodes.has(n.id)
+        ? '0 0 0 4px rgba(249, 115, 22, 0.25)'
+        : 'none',
     },
   }));
 
@@ -39,7 +46,11 @@ export const GraphView: React.FC<Props> = ({ state }) => {
     source: e.from,
     target: e.to,
     label: e.relation,
-    style: { stroke: '#94a3b8' },
+    style: {
+      stroke: highlightedNodes.has(e.from) || highlightedNodes.has(e.to)
+        ? '#f97316'
+        : '#94a3b8',
+    },
     labelStyle: { fill: '#cbd5e1', fontWeight: 600 },
   }));
 
