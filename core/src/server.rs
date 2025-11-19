@@ -1,4 +1,7 @@
-use crate::models::SystemState;
+use crate::{
+    models::SystemState,
+    risk::{risk_score, summarize_risk},
+};
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
 use std::path::PathBuf;
 use tokio::fs;
@@ -14,7 +17,21 @@ async fn api_state_handler() -> impl IntoResponse {
     }
     match fs::read_to_string(&path).await {
         Ok(contents) => match serde_json::from_str::<SystemState>(&contents) {
-            Ok(state) => (StatusCode::OK, Json(state)).into_response(),
+            Ok(state) => {
+                let total_risk = summarize_risk(&state.issues);
+                let issue_breakdown: Vec<(String, u32)> = state
+                    .issues
+                    .iter()
+                    .map(|issue| (issue.code.clone(), risk_score(issue)))
+                    .collect();
+
+                let mut val = serde_json::to_value(&state).expect("state serialize");
+
+                val["risk_score_total"] = serde_json::json!(total_risk);
+                val["risk_issue_breakdown"] = serde_json::json!(issue_breakdown);
+
+                (StatusCode::OK, Json(val)).into_response()
+            }
             Err(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Corrupt scan.json: {err}"),

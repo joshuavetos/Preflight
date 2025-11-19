@@ -29,6 +29,8 @@ export interface SystemState {
   nodes: Node[];
   edges: Edge[];
   issues: Issue[];
+  risk_score_total: number;
+  risk_issue_breakdown: [string, number][];
   version: string;
   timestamp: string;
 }

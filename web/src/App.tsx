@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { GraphView } from './GraphView';
 import { IssuesPanel } from './IssuesPanel';
+import { RiskPanel } from './RiskPanel';
 import { SystemState } from './types';
 import './index.css';
 
@@ -51,8 +52,18 @@ export default function App() {
         <div className={badge.className}>{badge.text}</div>
       </header>
       <main>
-        <GraphView state={state} />
-        <IssuesPanel issues={state?.issues ?? []} />
+        <div className="graph-column">
+          <GraphView state={state} />
+        </div>
+        <div className="sidebar">
+          {state ? (
+            <RiskPanel
+              score={state.risk_score_total}
+              breakdown={state.risk_issue_breakdown}
+            />
+          ) : null}
+          <IssuesPanel issues={state?.issues ?? []} />
+        </div>
       </main>
     </div>
   );
