@@ -30,15 +30,39 @@ async fn api_state_handler() -> impl IntoResponse {
 }
 
 fn dashboard_assets_root() -> Result<PathBuf, String> {
-    let mut path = std::env::current_dir().map_err(|e| e.to_string())?;
-    path.push("web/dist");
-    let index = path.join("index.html");
-    if !index.exists() {
-        return Err(
-            "Dashboard build not found. Run `npm install && npm run build` inside the /web directory.".to_string(),
-        );
+    let mut candidates = Vec::new();
+
+    if let Ok(env_path) = std::env::var("PREFLIGHT_DASHBOARD_DIST") {
+        candidates.push(PathBuf::from(env_path));
     }
-    Ok(path)
+
+    if let Ok(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(PathBuf::from))
+    {
+        candidates.push(exe_dir.join("dashboard"));
+
+        if let Some(prefix) = exe_dir.parent() {
+            candidates.push(prefix.join("share/preflight/dashboard"));
+        }
+
+        candidates.push(exe_dir.join("../share/preflight/dashboard"));
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("web/dist"));
+    }
+
+    for candidate in candidates {
+        let index = candidate.join("index.html");
+        if index.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(
+        "Dashboard build not found. Set PREFLIGHT_DASHBOARD_DIST to a built dist folder or place the dashboard next to the installed binary.".to_string(),
+    )
 }
 
 pub async fn run_dashboard_server() -> Result<(), String> {
