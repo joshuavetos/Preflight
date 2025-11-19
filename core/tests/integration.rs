@@ -28,3 +28,15 @@ fn scan_command_serializes() {
     assert!(!parsed.version.is_empty());
     assert!(!parsed.timestamp.is_empty());
 }
+
+#[test]
+fn python_detector_runs_without_panic() {
+    let state = scanner::perform_scan();
+    assert!(state.nodes.iter().any(|n| n.id == "os"));
+}
+
+#[test]
+fn docker_images_detector_runs_without_panic() {
+    let state = scanner::perform_scan();
+    assert!(state.nodes.iter().any(|n| n.id == "os"));
+}

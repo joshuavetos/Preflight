@@ -13,6 +13,11 @@ pub enum NodeType {
     Application,
     Port,
     File,
+    Python,
+    Postgres,
+    Redis,
+    Gpu,
+    DockerImages,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
