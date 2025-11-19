@@ -53,3 +53,10 @@ fn simulation_engine_runs() {
     let issues = oracle::simulate_command("docker compose up -p test");
     assert!(issues.len() >= 0);
 }
+
+#[test]
+fn simulation_risk_scoring_runs() {
+    let issues = oracle::simulate_command("docker compose up --gpus all -p test");
+    assert!(issues.len() > 0, "Simulation should emit issues");
+    assert!(issues.iter().any(|i| i.code == "SIM_RISK_SUMMARY"));
+}
