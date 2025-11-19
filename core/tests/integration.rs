@@ -25,4 +25,6 @@ fn scan_command_serializes() {
     let parsed: preflight::models::SystemState =
         serde_json::from_str(&data).expect("valid json schema");
     assert!(parsed.nodes.len() >= 1);
+    assert!(!parsed.version.is_empty());
+    assert!(!parsed.timestamp.is_empty());
 }

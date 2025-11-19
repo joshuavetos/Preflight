@@ -14,9 +14,9 @@ export const IssuesPanel: React.FC<Props> = ({ issues }) => {
       <h2>Issues</h2>
       <ul>
         {issues.map((issue) => (
-          <li key={issue.id} style={{ marginBottom: '0.75rem' }}>
+          <li key={issue.code} style={{ marginBottom: '0.75rem' }}>
             <div style={{ fontWeight: 700 }}>
-              [{issue.severity.toUpperCase()}] {issue.title}
+              [{issue.severity.toUpperCase()}] {issue.title} ({issue.code})
             </div>
             <div style={{ color: '#cbd5e1' }}>{issue.description}</div>
             <div style={{ color: '#a3e635' }}>Suggestion: {issue.suggestion}</div>
