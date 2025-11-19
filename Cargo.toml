@@ -1,0 +1,13 @@
+[workspace]
+members = ["core"]
+resolver = "2"
+
+[workspace.package]
+authors = ["Tessrax Governance Kernel v16"]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.metadata]
+auditor = "Tessrax Governance Kernel v16"
+clauses = ["AEP-001","RVC-001","EAC-001","POST-AUDIT-001","DLK-001","TESST"]
