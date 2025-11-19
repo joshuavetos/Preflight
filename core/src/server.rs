@@ -2,7 +2,12 @@ use crate::{
     models::SystemState,
     risk::{risk_score, summarize_risk},
 };
-use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
+use axum::{
+    http::{header, StatusCode},
+    response::IntoResponse,
+    routing::get,
+    Json, Router,
+};
 use std::path::PathBuf;
 use tokio::fs;
 use tower_http::services::ServeDir;
@@ -30,7 +35,9 @@ async fn api_state_handler() -> impl IntoResponse {
                 val["risk_score_total"] = serde_json::json!(total_risk);
                 val["risk_issue_breakdown"] = serde_json::json!(issue_breakdown);
 
-                (StatusCode::OK, Json(val)).into_response()
+                let etag_value = format!("W/\"{}-{}\"", state.timestamp, state.version);
+
+                (StatusCode::OK, [(header::ETAG, etag_value)], Json(val)).into_response()
             }
             Err(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

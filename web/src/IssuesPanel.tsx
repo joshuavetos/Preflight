@@ -14,7 +14,7 @@ export const IssuesPanel: React.FC<Props> = ({ issues }) => {
       <h2>Issues</h2>
       <ul>
         {issues.map((issue) => (
-          <li key={issue.code} style={{ marginBottom: '0.75rem' }}>
+          <li key={issue.code} className="slide-in" style={{ marginBottom: '0.75rem' }}>
             <div style={{ fontWeight: 700 }}>
               [{issue.severity.toUpperCase()}] {issue.title} ({issue.code})
             </div>

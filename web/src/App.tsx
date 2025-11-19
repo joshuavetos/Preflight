@@ -5,22 +5,6 @@ import { RiskPanel } from './RiskPanel';
 import { SystemState } from './types';
 import './index.css';
 
-const fetchState = async (): Promise<SystemState | null> => {
-  try {
-    const res = await fetch('/api/state', { cache: 'no-cache' });
-    if (!res.ok) {
-      const message = await res.text();
-      console.error('Failed to fetch state', res.status, message);
-      return null;
-    }
-    const json = (await res.json()) as SystemState;
-    return json;
-  } catch (err) {
-    console.error('Fetch error', err);
-    return null;
-  }
-};
-
 function statusLabel(state: SystemState | null) {
   if (!state || state.issues.length === 0) {
     return { text: 'Ready for Takeoff', className: 'status ok' };
@@ -30,15 +14,49 @@ function statusLabel(state: SystemState | null) {
 
 export default function App() {
   const [state, setState] = useState<SystemState | null>(null);
+  const [previousEtag, setPreviousEtag] = useState<string | null>(null);
+  const [fadeClass, setFadeClass] = useState("");
 
   useEffect(() => {
-    fetchState().then(setState);
-  }, []);
+    const run = async () => {
+      try {
+        const res = await fetch('/api/state', {
+          cache: 'no-cache',
+          headers: previousEtag ? { 'If-None-Match': previousEtag } : {},
+        });
+
+        if (res.status === 304) return; // No change
+
+        if (!res.ok) {
+          const message = await res.text();
+          console.error('Failed to fetch state', res.status, message);
+          return;
+        }
+
+        const newEtag = res.headers.get('ETag');
+        const newState = (await res.json()) as SystemState;
+
+        setFadeClass('fade-out');
+        setTimeout(() => {
+          setState(newState);
+          setFadeClass('fade-in');
+        }, 350);
+
+        if (newEtag) setPreviousEtag(newEtag);
+      } catch (err) {
+        console.error('Fetch error', err);
+      }
+    };
+
+    run();
+    const id = setInterval(run, 3000);
+    return () => clearInterval(id);
+  }, [previousEtag]);
 
   const badge = statusLabel(state);
 
   return (
-    <div>
+    <div className={fadeClass}>
       <header>
         <div>
           <h1>Preflight Dashboard</h1>
@@ -46,6 +64,20 @@ export default function App() {
           {state ? (
             <div style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
               Version {state.version} · Captured at {state.timestamp}
+              <br />
+              <span
+                className={
+                  state.issues.length === 0
+                    ? 'risk-banner risk-low'
+                    : state.issues.some((i) => i.severity === 'critical')
+                      ? 'risk-banner risk-high'
+                      : 'risk-banner risk-med'
+                }
+              >
+                Risk Score:{' '}
+                {state.issues.find((i) => i.code === 'SIM_RISK_SUMMARY')?.title
+                  .replace('Overall risk score: ', '') ?? 0}
+              </span>
             </div>
           ) : null}
         </div>
