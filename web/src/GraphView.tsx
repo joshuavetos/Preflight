@@ -23,23 +23,52 @@ export const GraphView: React.FC<Props> = ({ state }) => {
     return <div className="panel">No scan data available.</div>;
   }
 
+  // Map issue severity to node risk
+  const riskMap: Record<string, number> = {};
+  state.issues.forEach((issue) => {
+    const score = Number(issue.title.replace('Overall risk score: ', '').trim());
+    if (!Number.isNaN(score)) {
+      state.nodes.forEach((n) => (riskMap[n.id] = score));
+    }
+  });
+
+  const level = (score: number | undefined) => {
+    if (!score) return 'none';
+    if (score >= 70) return 'critical';
+    if (score >= 30) return 'warning';
+    return 'low';
+  };
+
   const highlightedNodes = new Set(
     state.nodes.filter((node) => node.status === 'conflict').map((node) => node.id)
   );
 
-  const nodes: Node[] = state.nodes.map((n, index) => ({
-    id: n.id,
-    position: { x: (index % 3) * 200, y: Math.floor(index / 3) * 150 },
-    data: { label: `${n.label} (${n.type.toUpperCase()})` },
-    style: {
-      border: `2px solid ${statusColor(n.status)}`,
-      background: '#111827',
-      color: '#e2e8f0',
-      boxShadow: highlightedNodes.has(n.id)
-        ? '0 0 0 4px rgba(249, 115, 22, 0.25)'
-        : 'none',
-    },
-  }));
+  const nodes: Node[] = state.nodes.map((n) => {
+    const risk = level(riskMap[n.id]);
+
+    return {
+      id: n.id,
+      // Safer layout: OS top, Services middle, Ports bottom
+      position: {
+        x: risk === 'critical' ? 200 : 150,
+        y: n.type === 'os' ? 0 : n.type === 'service' ? 150 : n.type === 'runtime' ? 300 : 450,
+      },
+      data: { label: `${n.label} (${n.type.toUpperCase()})` },
+      style: {
+        border: `2px solid ${statusColor(n.status)}`,
+        background: '#111827',
+        color: '#e2e8f0',
+        boxShadow: highlightedNodes.has(n.id)
+          ? '0 0 0 4px rgba(249, 115, 22, 0.25)'
+          : risk === 'critical'
+            ? '0 0 14px #ff4d4d'
+            : risk === 'warning'
+              ? '0 0 10px #f59e0b'
+              : 'none',
+        animation: risk === 'critical' ? 'pulseCritical 1.2s infinite' : 'none',
+      },
+    };
+  });
 
   const edges: Edge[] = state.edges.map((e) => ({
     id: `${e.from}-${e.to}-${e.relation}`,
