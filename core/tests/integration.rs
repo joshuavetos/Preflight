@@ -1,5 +1,5 @@
 use assert_cmd::Command;
-use preflight::{models::Status, scanner};
+use preflight::{models::Status, oracle, scanner};
 
 #[test]
 fn scanner_produces_nodes_and_docker_entry() {
@@ -39,4 +39,17 @@ fn python_detector_runs_without_panic() {
 fn docker_images_detector_runs_without_panic() {
     let state = scanner::perform_scan();
     assert!(state.nodes.iter().any(|n| n.id == "os"));
+}
+
+#[test]
+fn issue_engine_runs_without_panic() {
+    let state = scanner::perform_scan();
+    let issues = oracle::evaluate(&state);
+    assert!(issues.len() >= 0);
+}
+
+#[test]
+fn simulation_engine_runs() {
+    let issues = oracle::simulate_command("docker compose up -p test");
+    assert!(issues.len() >= 0);
 }
