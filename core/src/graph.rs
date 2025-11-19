@@ -54,42 +54,72 @@ pub fn derive_edges(state: &mut SystemState) {
         });
     }
 
-    if state.nodes.iter().any(|n| n.id == "python") {
-        state.edges.push(Edge {
-            from: "python".to_string(),
-            to: "os".to_string(),
-            relation: Relation::REQUIRES,
-        });
-    }
-
+    // -------------------------------
+    // POSTGRES → OS
+    // -------------------------------
     if state.nodes.iter().any(|n| n.id == "postgres") {
         state.edges.push(Edge {
-            from: "postgres".to_string(),
-            to: "os".to_string(),
+            from: "postgres".into(),
+            to: "os".into(),
             relation: Relation::REQUIRES,
         });
+        // Postgres binds to port5432 if port active
+        if state.nodes.iter().any(|n| n.id == "port5432") {
+            state.edges.push(Edge {
+                from: "postgres".into(),
+                to: "port5432".into(),
+                relation: Relation::BINDS,
+            });
+        }
     }
 
+    // -------------------------------
+    // REDIS → OS
+    // -------------------------------
     if state.nodes.iter().any(|n| n.id == "redis") {
         state.edges.push(Edge {
-            from: "redis".to_string(),
-            to: "os".to_string(),
+            from: "redis".into(),
+            to: "os".into(),
             relation: Relation::REQUIRES,
         });
+        if state.nodes.iter().any(|n| n.id == "port6379") {
+            state.edges.push(Edge {
+                from: "redis".into(),
+                to: "port6379".into(),
+                relation: Relation::BINDS,
+            });
+        }
     }
 
+    // -------------------------------
+    // GPU → OS
+    // -------------------------------
     if state.nodes.iter().any(|n| n.id == "gpu") {
         state.edges.push(Edge {
-            from: "gpu".to_string(),
-            to: "os".to_string(),
+            from: "gpu".into(),
+            to: "os".into(),
             relation: Relation::REQUIRES,
         });
     }
 
+    // -------------------------------
+    // Docker Images → Docker
+    // -------------------------------
     if state.nodes.iter().any(|n| n.id == "docker_images") {
         state.edges.push(Edge {
-            from: "docker_images".to_string(),
-            to: "docker".to_string(),
+            from: "docker_images".into(),
+            to: "docker".into(),
+            relation: Relation::REQUIRES,
+        });
+    }
+
+    // -------------------------------
+    // Python → OS
+    // -------------------------------
+    if state.nodes.iter().any(|n| n.id == "python") {
+        state.edges.push(Edge {
+            from: "python".into(),
+            to: "os".into(),
             relation: Relation::REQUIRES,
         });
     }
