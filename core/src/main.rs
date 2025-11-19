@@ -4,6 +4,7 @@ mod oracle;
 mod scanner;
 mod server;
 mod utils;
+mod doctor;
 
 use clap::{Parser, Subcommand};
 use graph::{derive_edges, summarize, DependencyGraph};
@@ -24,6 +25,7 @@ enum Commands {
     Scan,
     Simulate { command: String },
     Dashboard,
+    Doctor,
 }
 
 fn scan_command() -> Result<SystemState, String> {
@@ -42,6 +44,9 @@ fn scan_command() -> Result<SystemState, String> {
 }
 
 fn simulate(command: &str) {
+    if !std::path::PathBuf::from(".preflight/scan.json").exists() {
+        println!("⚠️  No scan.json found. Run `preflight scan` first.");
+    }
     let issues = simulate_command(command);
     if issues.is_empty() {
         println!("Simulation successful: no predicted issues for `{command}`.");
@@ -73,6 +78,12 @@ async fn main() {
         Commands::Dashboard => {
             if let Err(e) = server::run_dashboard_server().await {
                 eprintln!("Dashboard failed: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Doctor => {
+            if let Err(e) = doctor::doctor() {
+                eprintln!("Doctor failed: {e}");
                 std::process::exit(1);
             }
         }

@@ -19,3 +19,22 @@ pub fn write_state(path: &Path, state: &SystemState) -> Result<(), std::io::Erro
     fs::rename(&tmp_path, path)?;
     Ok(())
 }
+
+pub fn which(cmd: &str) -> bool {
+    std::process::Command::new(cmd)
+        .arg("--version")
+        .output()
+        .is_ok()
+}
+
+pub fn ok(msg: &str) {
+    println!("\x1b[32m{}\x1b[0m", msg);
+}
+
+pub fn warn(msg: &str) {
+    println!("\x1b[33m{}\x1b[0m", msg);
+}
+
+pub fn err(msg: &str) {
+    eprintln!("\x1b[31m{}\x1b[0m", msg);
+}
