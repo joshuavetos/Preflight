@@ -15,10 +15,8 @@ use tower_http::services::ServeDir;
 async fn api_state_handler() -> impl IntoResponse {
     let path = PathBuf::from(".preflight/scan.json");
     if !path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            "Scan file not found. Run `preflight scan` first.",
-        );
+        println!("No scan found — auto-running `preflight scan`...");
+        let _ = crate::scanner::perform_scan();
     }
     match fs::read_to_string(&path).await {
         Ok(contents) => match serde_json::from_str::<SystemState>(&contents) {
@@ -58,9 +56,7 @@ fn dashboard_assets_root() -> Result<PathBuf, String> {
     path.push("web/dist");
     let index = path.join("index.html");
     if !index.exists() {
-        return Err(
-            "Dashboard build not found. Run `npm install && npm run build` inside the /web directory.".to_string(),
-        );
+        return Err("Dashboard build missing: run `npm install && npm run build` in /web".to_string());
     }
     Ok(path)
 }
@@ -78,6 +74,7 @@ pub async fn run_dashboard_server() -> Result<(), String> {
 
     let url = format!("http://{addr}");
     println!("Dashboard available at {url}");
+    println!("Press Ctrl+C to stop the dashboard server.");
 
     let opener_url = url.clone();
     tokio::spawn(async move {
