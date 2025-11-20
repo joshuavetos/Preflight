@@ -1,0 +1,31 @@
+name: release
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: cargo xtask release
+
+      - name: Upload release archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-${{ matrix.os }}
+          path: |
+            target/preflight.tar.gz
+            target/preflight.zip
