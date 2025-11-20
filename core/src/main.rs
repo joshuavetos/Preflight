@@ -1,12 +1,13 @@
+mod config;
+mod doctor;
 mod graph;
 mod models;
 mod oracle;
+mod risk;
+mod risk_config;
 mod scanner;
 mod server;
 mod utils;
-mod config;
-mod risk;
-mod doctor;
 
 use clap::{Parser, Subcommand};
 
@@ -32,8 +33,7 @@ fn scan_command() -> Result<models::SystemState, String> {
     state.assert_contract();
 
     let path = std::path::PathBuf::from(".preflight/scan.json");
-    utils::write_state(&path, &state)
-        .map_err(|e| format!("Failed to write scan: {e}"))?;
+    utils::write_state(&path, &state).map_err(|e| format!("Failed to write scan: {e}"))?;
 
     println!(
         "Preflight scan complete: {} nodes, {} edges, {} issues",

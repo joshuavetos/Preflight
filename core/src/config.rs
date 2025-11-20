@@ -18,10 +18,9 @@ impl RiskConfig {
     pub fn load() -> Result<Self, String> {
         let path = ".preflight/risk_config.json";
 
-        let contents = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to load {path}: {e}"))?;
+        let contents =
+            fs::read_to_string(path).map_err(|e| format!("Failed to load {path}: {e}"))?;
 
-        serde_json::from_str(&contents)
-            .map_err(|e| format!("Invalid risk_config.json: {e}"))
+        serde_json::from_str(&contents).map_err(|e| format!("Invalid risk_config.json: {e}"))
     }
 }

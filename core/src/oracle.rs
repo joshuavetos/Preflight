@@ -1,5 +1,6 @@
 use crate::models::{Issue, Severity, Status, SystemState};
 use crate::risk::summarize_risk;
+use crate::risk_config::RiskConfig;
 use regex::Regex;
 
 pub fn evaluate(state: &SystemState) -> Vec<Issue> {
@@ -299,7 +300,8 @@ pub fn simulate_command(command: &str) -> Vec<Issue> {
     // RISK SUMMARY (ADDED AS SYNTHETIC ISSUE)
     //-------------------------------------------
     if !issues.is_empty() {
-        let score = summarize_risk(&issues);
+        let cfg = RiskConfig::load();
+        let score = summarize_risk(&issues, &cfg);
         issues.push(Issue {
             code: "SIM_RISK_SUMMARY".into(),
             severity: if score >= 70 {

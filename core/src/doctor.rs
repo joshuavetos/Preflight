@@ -1,4 +1,4 @@
-use crate::utils::{which, ok, warn};
+use crate::utils::{ok, warn, which};
 use std::path::Path;
 
 pub fn doctor() -> Result<(), String> {

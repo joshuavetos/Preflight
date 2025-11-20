@@ -1,6 +1,8 @@
 use crate::{
     models::SystemState,
     risk::{risk_score, summarize_risk},
+    risk_config::RiskConfig,
+    scanner,
 };
 use axum::{
     http::{header, StatusCode},
@@ -14,29 +16,33 @@ use tower_http::services::ServeDir;
 
 async fn api_state_handler() -> impl IntoResponse {
     let path = PathBuf::from(".preflight/scan.json");
+
     if !path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            "Scan file not found. Run `preflight scan` first.",
-        )
-            .into_response();
+        println!("No scan found — auto-running `preflight scan`...");
+        let _ = scanner::perform_scan();
     }
 
     match fs::read_to_string(&path).await {
         Ok(contents) => match serde_json::from_str::<SystemState>(&contents) {
             Ok(state) => {
-                let total_risk = summarize_risk(&state.issues);
-                let breakdown: Vec<(String, u32)> = state
+                // Load dynamic risk config
+                let cfg = RiskConfig::load();
+
+                let total_risk = summarize_risk(&state.issues, &cfg);
+                let issue_breakdown: Vec<(String, u32)> = state
                     .issues
                     .iter()
-                    .map(|i| (i.code.clone(), risk_score(i)))
+                    .map(|issue| (issue.code.clone(), risk_score(issue, &cfg)))
                     .collect();
 
-                let mut val = serde_json::to_value(&state).unwrap();
+                let mut val = serde_json::to_value(&state).expect("state serialize");
+
                 val["risk_score_total"] = serde_json::json!(total_risk);
-                val["risk_issue_breakdown"] = serde_json::json!(breakdown);
+                val["risk_issue_breakdown"] = serde_json::json!(issue_breakdown);
+                val["risk_config"] = serde_json::to_value(&cfg).unwrap();
 
                 let etag_value = format!("W/\"{}-{}\"", state.timestamp, state.version);
+
                 (StatusCode::OK, [(header::ETAG, etag_value)], Json(val)).into_response()
             }
             Err(err) => (
