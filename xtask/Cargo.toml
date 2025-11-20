@@ -1,0 +1,12 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+
+authors = ["Tessrax Governance Kernel v16"]
+license = "MIT"
+description = "Cross-platform task runner for Preflight"
+
+[dependencies]
+anyhow = "1.0"
+duct = "0.13"
