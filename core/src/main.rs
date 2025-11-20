@@ -4,11 +4,19 @@ mod oracle;
 mod scanner;
 mod server;
 mod utils;
+
+mod command_ast;
 mod config;
-mod risk;
 mod doctor;
+mod json_diff;
+mod proposed_state;
+mod risk;
+mod risk_config;
+mod system_provider;
+mod tokenizer;
 
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(author, version, about = "Preflight system scanner")]
@@ -21,6 +29,7 @@ struct Cli {
 enum Commands {
     Scan,
     Simulate { command: String },
+    SimulateProposed { command: String },
     Dashboard,
     Doctor,
 }
@@ -31,39 +40,52 @@ fn scan_command() -> Result<models::SystemState, String> {
     state.issues = oracle::evaluate(&state);
     state.assert_contract();
 
-    let path = std::path::PathBuf::from(".preflight/scan.json");
-    utils::write_state(&path, &state)
-        .map_err(|e| format!("Failed to write scan: {e}"))?;
+    let path = PathBuf::from(".preflight/scan.json");
+    utils::write_state(&path, &state).map_err(|e| format!("Failed to write scan: {}", e))?;
 
-    println!(
-        "Preflight scan complete: {} nodes, {} edges, {} issues",
-        state.nodes.len(),
-        state.edges.len(),
-        state.issues.len()
-    );
-
+    println!("Preflight scan complete. {}", graph::summarize(&state));
     Ok(state)
 }
 
-fn simulate(command: &str) {
-    if !std::path::PathBuf::from(".preflight/scan.json").exists() {
-        println!("⚠️  No scan.json found. Run `preflight scan` first.");
-    }
-
-    let issues = oracle::simulate_command(command);
-    if issues.is_empty() {
+fn simulate_simple(command: &str) {
+    let result = oracle::simulate_command(command);
+    if result.issues.is_empty() {
         println!("Simulation successful: no predicted issues.");
     } else {
-        println!("Simulation detected {} potential issues:", issues.len());
-        for issue in issues {
+        println!("Simulation detected potential issues:");
+        for issue in result.issues {
             println!(
-                "- [{}] {} ({}): {}",
-                issue.severity.to_string(),
+                "- [{}] {} ({})",
+                issue.severity.to_string().to_uppercase(),
                 issue.title,
-                issue.code,
-                issue.suggestion
+                issue.code
             );
         }
+    }
+}
+
+fn simulate_proposed(command: &str) {
+    let result = oracle::simulate_command(command);
+
+    println!("\n=== Predicted Issues ===");
+    for issue in &result.issues {
+        println!(
+            "- [{}] {} ({})",
+            issue.severity.to_string().to_uppercase(),
+            issue.title,
+            issue.code
+        );
+    }
+
+    if let Some(ps) = result.proposed_state {
+        let path = PathBuf::from(".preflight/scan_proposed.json");
+        utils::write_state(&path, &ps).expect("write proposed");
+        println!("\nProposed state written to .preflight/scan_proposed.json");
+    }
+
+    if let Some(diff) = result.diff {
+        println!("\n=== Diff (current → proposed) ===");
+        println!("{}", serde_json::to_string_pretty(&diff).unwrap());
     }
 }
 
@@ -74,20 +96,23 @@ async fn main() {
     match cli.command {
         Commands::Scan => {
             if let Err(e) = scan_command() {
-                eprintln!("Scan failed: {e}");
+                eprintln!("Scan failed: {}", e);
                 std::process::exit(1);
             }
         }
-        Commands::Simulate { command } => simulate(&command),
+        Commands::Simulate { command } => simulate_simple(&command),
+
+        Commands::SimulateProposed { command } => simulate_proposed(&command),
+
         Commands::Dashboard => {
             if let Err(e) = server::run_dashboard_server().await {
-                eprintln!("Dashboard failed: {e}");
+                eprintln!("Dashboard failed: {}", e);
                 std::process::exit(1);
             }
         }
         Commands::Doctor => {
             if let Err(e) = doctor::doctor() {
-                eprintln!("Doctor failed: {e}");
+                eprintln!("Doctor failed: {}", e);
                 std::process::exit(1);
             }
         }
