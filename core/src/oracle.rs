@@ -1,6 +1,6 @@
 use crate::command_ast::parse_command;
 use crate::json_diff::diff_states;
-use crate::models::{Issue, Severity, SystemState};
+use crate::models::{Issue, Severity, Status, SystemState};
 use crate::proposed_state::{apply_predicted_changes, clone_state};
 use serde_json::json;
 use serde_json::Value;
@@ -34,6 +34,78 @@ pub fn evaluate(state: &SystemState) -> Vec<Issue> {
                 description: "Port 8000 appears to be bound.".into(),
                 suggestion: "Stop the conflicting service or select another port.".into(),
             });
+        }
+
+        match node.id.as_str() {
+            "nodejs" if node.status != Status::Active => {
+                issues.push(Issue {
+                    code: "NODEJS_INACTIVE".into(),
+                    severity: Severity::Warning,
+                    title: "Node.js unavailable".into(),
+                    description: "Node.js was not detected during the scan.".into(),
+                    suggestion: "Install Node.js and ensure it is available on PATH.".into(),
+                });
+            }
+            "postgres" => {
+                let port_bound = node
+                    .metadata
+                    .get("port_bound")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if port_bound {
+                    issues.push(Issue {
+                        code: "POSTGRES_PORT_BOUND".into(),
+                        severity: Severity::Warning,
+                        title: "PostgreSQL port bound".into(),
+                        description: "Port 5432 is currently bound.".into(),
+                        suggestion: "Stop the conflicting PostgreSQL instance or update the port configuration.".into(),
+                    });
+                }
+                if node.status != Status::Active {
+                    issues.push(Issue {
+                        code: "POSTGRES_INACTIVE".into(),
+                        severity: Severity::Warning,
+                        title: "PostgreSQL unavailable".into(),
+                        description: "PostgreSQL was not detected during the scan.".into(),
+                        suggestion: "Install or start PostgreSQL and verify psql is reachable.".into(),
+                    });
+                }
+            }
+            "redis" => {
+                let port_bound = node
+                    .metadata
+                    .get("port_bound")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if port_bound {
+                    issues.push(Issue {
+                        code: "REDIS_PORT_BOUND".into(),
+                        severity: Severity::Warning,
+                        title: "Redis port bound".into(),
+                        description: "Port 6379 is currently bound.".into(),
+                        suggestion: "Stop the conflicting Redis instance or adjust the configured port.".into(),
+                    });
+                }
+                if node.status != Status::Active {
+                    issues.push(Issue {
+                        code: "REDIS_INACTIVE".into(),
+                        severity: Severity::Warning,
+                        title: "Redis unavailable".into(),
+                        description: "Redis was not detected during the scan.".into(),
+                        suggestion: "Install or start Redis so redis-server or redis-cli are reachable.".into(),
+                    });
+                }
+            }
+            "gpu" if node.status != Status::Active => {
+                issues.push(Issue {
+                    code: "GPU_MISSING".into(),
+                    severity: Severity::Warning,
+                    title: "GPU unavailable".into(),
+                    description: "No GPU was detected via nvidia-smi.".into(),
+                    suggestion: "Install GPU drivers or ensure the GPU is accessible to this environment.".into(),
+                });
+            }
+            _ => {}
         }
     }
 

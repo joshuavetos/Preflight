@@ -1,4 +1,15 @@
-export type NodeType = 'os' | 'service' | 'runtime' | 'application' | 'port' | 'file';
+export type NodeType =
+  | 'os'
+  | 'service'
+  | 'runtime'
+  | 'application'
+  | 'port'
+  | 'file'
+  | 'python'
+  | 'postgres'
+  | 'redis'
+  | 'gpu'
+  | 'dockerimages';
 export type Status = 'active' | 'inactive' | 'conflict';
 export type Relation = 'REQUIRES' | 'BINDS' | 'CONFLICTS';
 export type Severity = 'critical' | 'warning';

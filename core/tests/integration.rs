@@ -42,6 +42,25 @@ fn docker_images_detector_runs_without_panic() {
 }
 
 #[test]
+fn extended_detectors_emit_nodes() {
+    let state = scanner::perform_scan();
+    for id in ["nodejs", "postgres", "redis", "gpu"] {
+        let node = state.nodes.iter().find(|n| n.id == id);
+        assert!(node.is_some(), "{} node must be present", id);
+        if let Some(n) = node {
+            assert!(
+                matches!(
+                    n.status,
+                    Status::Active | Status::Inactive | Status::Conflict
+                ),
+                "{} node must have a concrete status",
+                id
+            );
+        }
+    }
+}
+
+#[test]
 fn issue_engine_runs_without_panic() {
     let state = scanner::perform_scan();
     let issues = oracle::evaluate(&state);

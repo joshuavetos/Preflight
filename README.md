@@ -7,6 +7,7 @@ Preflight delivers a reproducible system scan, simulation engine, and Rust-hoste
 - Deterministic JSON contract with nodes, edges, issues, version, and timestamp fields.
 - Rust dashboard server that serves the built React assets and exposes `/api/state`.
 - Simulation engine that predicts port and Docker Compose conflicts before you run a command.
+- Extended detectors for Docker, Python, Node.js, PostgreSQL, Redis, GPU availability, and common port checks.
 - POSIX and PowerShell scripts for build, install, simulation, and dashboard launch.
 
 ## Install

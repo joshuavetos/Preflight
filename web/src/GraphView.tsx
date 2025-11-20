@@ -18,6 +18,14 @@ const statusColor = (status: string) => {
   }
 };
 
+const typeLevel = (type: string) => {
+  if (type === 'os') return 0;
+  if (['service', 'postgres', 'redis', 'dockerimages'].includes(type)) return 150;
+  if (['runtime', 'python', 'gpu', 'nodejs'].includes(type)) return 300;
+  if (type === 'port') return 450;
+  return 450;
+};
+
 export const GraphView: React.FC<Props> = ({ state }) => {
   if (!state) {
     return <div className="panel">No scan data available.</div>;
@@ -51,7 +59,7 @@ export const GraphView: React.FC<Props> = ({ state }) => {
       // Safer layout: OS top, Services middle, Ports bottom
       position: {
         x: risk === 'critical' ? 200 : 150,
-        y: n.type === 'os' ? 0 : n.type === 'service' ? 150 : n.type === 'runtime' ? 300 : 450,
+        y: typeLevel(n.type),
       },
       data: { label: `${n.label} (${n.type.toUpperCase()})` },
       style: {
