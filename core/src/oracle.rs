@@ -11,6 +11,29 @@ pub struct SimulationResult {
     pub diff: Option<Value>,
 }
 
+fn parse_version_pair(raw: &str) -> Option<(u64, u64)> {
+    let clean = raw.trim().trim_start_matches('v');
+    let mut parts = clean.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next().unwrap_or("0").parse::<u64>().ok()?;
+    Some((major, minor))
+}
+
+fn api_meets_requirement(api: (u64, u64), required: (u64, u64)) -> bool {
+    api.0 > required.0 || (api.0 == required.0 && api.1 >= required.1)
+}
+
+fn required_api_for_compose(compose_version: &str) -> Option<(u64, u64)> {
+    let (major, _) = parse_version_pair(compose_version)?;
+    if major >= 3 {
+        Some((1, 25))
+    } else if major >= 2 {
+        Some((1, 22))
+    } else {
+        None
+    }
+}
+
 pub fn evaluate(state: &SystemState) -> Vec<Issue> {
     // unchanged from Drop 2 — left intact intentionally
     let mut issues = Vec::new();
@@ -24,6 +47,51 @@ pub fn evaluate(state: &SystemState) -> Vec<Issue> {
                 description: "Docker was unreachable during the scan.".into(),
                 suggestion: "Start the Docker service.".into(),
             });
+        }
+
+        if node.id == "docker" {
+            let compose_version = node
+                .metadata
+                .get("compose_version")
+                .and_then(|v| v.as_str());
+            if let Some(compose_version) = compose_version {
+                if let Some(required_api) = required_api_for_compose(compose_version) {
+                    match node
+                        .metadata
+                        .get("docker_api_version")
+                        .and_then(|v| v.as_str())
+                        .and_then(parse_version_pair)
+                    {
+                        Some(api_version) => {
+                            if !api_meets_requirement(api_version, required_api) {
+                                issues.push(Issue {
+                                    code: "DOCKER_COMPOSE_DRIFT".into(),
+                                    severity: Severity::Warning,
+                                    title: "Docker Compose version exceeds API support".into(),
+                                    description: format!(
+                                        "compose.yaml requires Docker API >= {}.{} but detected {}.{}.",
+                                        required_api.0, required_api.1, api_version.0, api_version.1
+                                    ),
+                                    suggestion:
+                                        "Upgrade Docker Engine or lower the Compose file version for compatibility."
+                                            .into(),
+                                });
+                            }
+                        }
+                        None => issues.push(Issue {
+                            code: "DOCKER_COMPOSE_DRIFT".into(),
+                            severity: Severity::Warning,
+                            title: "Docker Compose version exceeds API support".into(),
+                            description: format!(
+                                "compose.yaml requires Docker API >= {}.{} but the engine API version was not detected.",
+                                required_api.0, required_api.1
+                            ),
+                            suggestion:
+                                "Ensure Docker is installed and accessible to report its API version.".into(),
+                        }),
+                    }
+                }
+            }
         }
 
         if node.id == "port8000" && node.status == crate::models::Status::Active {

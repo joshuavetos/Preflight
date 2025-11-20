@@ -185,6 +185,46 @@ fn detect_docker<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     let docker_ok =
         provider.file_exists(socket_path) || provider.command_output("docker", &["info"]).is_some();
 
+    let compose_paths = [
+        "compose.yaml",
+        "compose.yml",
+        "docker-compose.yaml",
+        "docker-compose.yml",
+    ];
+    let compose_file = compose_paths
+        .iter()
+        .find(|p| provider.file_exists(p))
+        .map(|p| p.to_string());
+    if let Some(file) = &compose_file {
+        metadata.insert("compose_file".into(), json!(file));
+        if let Some(contents) = provider.read_file(file) {
+            let compose_version = contents.lines().find_map(|line| {
+                let trimmed = line.trim();
+                if trimmed.starts_with("version") {
+                    trimmed
+                        .splitn(2, ':')
+                        .nth(1)
+                        .map(|v| v.trim().trim_matches('\'').trim_matches('"').to_string())
+                } else {
+                    None
+                }
+            });
+            if let Some(ver) = compose_version {
+                if !ver.is_empty() {
+                    metadata.insert("compose_version".into(), json!(ver));
+                }
+            }
+        }
+    }
+
+    if let Some(api) =
+        provider.command_output("docker", &["version", "--format", "{{.Server.APIVersion}}"])
+    {
+        if !api.is_empty() {
+            metadata.insert("docker_api_version".into(), json!(api));
+        }
+    }
+
     let status = if docker_ok {
         Status::Active
     } else {
