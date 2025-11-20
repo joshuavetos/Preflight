@@ -1,4 +1,6 @@
+use crate::utils::json_envelope;
 use serde::Serialize;
+use serde_json::json;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,12 +10,6 @@ use std::process::Command;
 pub struct Violation {
     pub file: String,
     pub message: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ValidationReport {
-    status: &'static str,
-    violations: Vec<Violation>,
 }
 
 pub fn validate(json_output: bool) -> i32 {
@@ -32,8 +28,14 @@ pub fn validate(json_output: bool) -> i32 {
 
     if json_output {
         let status = if has_violations { "violation" } else { "ok" };
-        let report = ValidationReport { status, violations };
-        match serde_json::to_string_pretty(&report) {
+        let payload = json_envelope(
+            "validate",
+            status,
+            json!({
+                "violations": violations
+            }),
+        );
+        match serde_json::to_string_pretty(&payload) {
             Ok(rendered) => println!("{}", rendered),
             Err(err) => {
                 eprintln!("Failed to render JSON: {}", err);
@@ -57,6 +59,10 @@ pub fn validate(json_output: bool) -> i32 {
     } else {
         0
     }
+}
+
+pub fn validate_paths(src_root: &Path, manifest: &Path) -> Result<Vec<Violation>, String> {
+    scan_files(src_root, manifest)
 }
 
 fn scan_files(src_root: &Path, manifest: &Path) -> Result<Vec<Violation>, String> {

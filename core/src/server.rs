@@ -8,6 +8,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 use tokio::fs;
 use tower_http::services::ServeDir;
@@ -53,6 +54,31 @@ async fn api_state_handler() -> impl IntoResponse {
     }
 }
 
+async fn api_mtime_handler() -> impl IntoResponse {
+    let path = PathBuf::from(".preflight/scan.json");
+    if !path.exists() {
+        return (
+            StatusCode::NOT_FOUND,
+            "Scan file not found. Run `preflight scan` first.",
+        )
+            .into_response();
+    }
+    match fs::metadata(&path).await.and_then(|m| m.modified()) {
+        Ok(modified) => {
+            let ts: DateTime<Utc> = modified.into();
+            let payload = serde_json::json!({
+                "timestamp": ts.to_rfc3339(),
+            });
+            (StatusCode::OK, Json(payload)).into_response()
+        }
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Unable to read scan metadata: {err}"),
+        )
+            .into_response(),
+    }
+}
+
 fn dashboard_assets_root() -> Result<PathBuf, String> {
     let mut path = std::env::current_dir().map_err(|e| e.to_string())?;
     path.push("web/dist");
@@ -66,6 +92,7 @@ pub async fn run_dashboard_server() -> Result<(), String> {
     let dist = dashboard_assets_root()?;
     let app = Router::new()
         .route("/api/state", get(api_state_handler))
+        .route("/api/mtime", get(api_mtime_handler))
         .fallback_service(ServeDir::new(dist).append_index_html_on_directories(true));
 
     let addr = "127.0.0.1:8787";

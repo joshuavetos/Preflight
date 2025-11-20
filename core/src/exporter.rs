@@ -1,5 +1,7 @@
 use crate::graph;
 use crate::models::{Relation, SystemState};
+use crate::utils::json_envelope;
+use serde_json::json;
 use std::fs;
 
 fn load_state() -> Result<SystemState, String> {
@@ -50,7 +52,7 @@ fn graphviz(state: &SystemState) -> String {
     out
 }
 
-pub fn export(format: &str) -> Result<(), String> {
+pub fn export(format: &str, json_output: bool) -> Result<(), String> {
     let mut state = load_state()?;
     graph::derive_edges(&mut state);
     let rendered = match format {
@@ -58,6 +60,18 @@ pub fn export(format: &str) -> Result<(), String> {
         "graphviz" => graphviz(&state),
         other => return Err(format!("Unsupported export format: {}", other)),
     };
-    println!("{}", rendered);
+    if json_output {
+        let payload = json_envelope(
+            "export",
+            "ok",
+            json!({
+                "format": format,
+                "output_file": "stdout"
+            }),
+        );
+        println!("{}", serde_json::to_string_pretty(&payload).unwrap());
+    } else {
+        println!("{}", rendered);
+    }
     Ok(())
 }

@@ -1,5 +1,8 @@
 use crate::models::SystemState;
+use chrono::Utc;
 use fs2::FileExt;
+use serde_json::json;
+use serde_json::Value;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
@@ -37,4 +40,13 @@ pub fn warn(msg: &str) {
 
 pub fn err(msg: &str) {
     eprintln!("\x1b[31m{}\x1b[0m", msg);
+}
+
+pub fn json_envelope(command: &str, status: &str, data: Value) -> Value {
+    json!({
+        "command": command,
+        "status": status,
+        "timestamp": Utc::now().to_rfc3339(),
+        "data": data
+    })
 }

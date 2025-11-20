@@ -1,6 +1,15 @@
 use crate::fix;
-use crate::utils::{ok, warn, which};
+use crate::utils::{json_envelope, ok, warn, which};
+use serde::Serialize;
+use serde_json::json;
 use std::path::Path;
+
+#[derive(Debug, Serialize, Clone)]
+pub struct DoctorIssue {
+    pub code: String,
+    pub fixable: bool,
+    pub fix_command: Option<String>,
+}
 
 fn print_issue_overview() -> Result<(), String> {
     let state = fix::load_state()?;
@@ -28,38 +37,69 @@ fn print_issue_overview() -> Result<(), String> {
     Ok(())
 }
 
-pub fn doctor() -> Result<(), String> {
-    println!("\n=== Preflight Diagnostics ===");
+fn collect_issues() -> Result<Vec<DoctorIssue>, String> {
+    let state = fix::load_state()?;
+    let fixes = fix::commands();
+    Ok(state
+        .issues
+        .into_iter()
+        .map(|issue| DoctorIssue {
+            code: issue.code.clone(),
+            fixable: fixes.contains_key(issue.code.as_str()),
+            fix_command: fixes.get(issue.code.as_str()).map(|c| c.to_string()),
+        })
+        .collect())
+}
 
-    if Path::new(".preflight").exists() {
-        ok(".preflight directory: OK");
+pub fn doctor(json_output: bool) -> Result<(), String> {
+    if json_output {
+        if Path::new(".preflight/scan.json").exists() {
+            let issues = collect_issues()?;
+            let payload = json_envelope(
+                "doctor",
+                "ok",
+                json!({
+                    "issues": issues
+                }),
+            );
+            println!("{}", serde_json::to_string_pretty(&payload).unwrap());
+            Ok(())
+        } else {
+            Err("No scan data available — run `preflight scan` first.".into())
+        }
     } else {
-        warn(".preflight directory missing");
-    }
+        println!("\n=== Preflight Diagnostics ===");
 
-    if which("docker") {
-        ok("Docker CLI: OK");
-    } else {
-        warn("Docker CLI not found");
-    }
+        if Path::new(".preflight").exists() {
+            ok(".preflight directory: OK");
+        } else {
+            warn(".preflight directory missing");
+        }
 
-    if which("node") {
-        ok("Node.js: OK");
-    } else {
-        warn("Node.js not found");
-    }
+        if which("docker") {
+            ok("Docker CLI: OK");
+        } else {
+            warn("Docker CLI not found");
+        }
 
-    if Path::new("web/dist").exists() {
-        ok("Dashboard build (web/dist): OK");
-    } else {
-        warn("Dashboard build missing — run `npm run build` inside /web");
-    }
+        if which("node") {
+            ok("Node.js: OK");
+        } else {
+            warn("Node.js not found");
+        }
 
-    if Path::new(".preflight/scan.json").exists() {
-        print_issue_overview()?;
-    } else {
-        warn("No scan data available — run `preflight scan` to populate issues.");
-    }
+        if Path::new("web/dist").exists() {
+            ok("Dashboard build (web/dist): OK");
+        } else {
+            warn("Dashboard build missing — run `npm run build` inside /web");
+        }
 
-    Ok(())
+        if Path::new(".preflight/scan.json").exists() {
+            print_issue_overview()?;
+        } else {
+            warn("No scan data available — run `preflight scan` to populate issues.");
+        }
+
+        Ok(())
+    }
 }
