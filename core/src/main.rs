@@ -4,6 +4,7 @@ mod oracle;
 mod scanner;
 mod server;
 mod utils;
+mod validate;
 
 mod command_ast;
 mod config;
@@ -57,6 +58,10 @@ enum Commands {
     Export {
         #[arg(long)]
         format: String,
+    },
+    Validate {
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -196,6 +201,12 @@ async fn main() {
             if let Err(e) = exporter::export(&format) {
                 eprintln!("Export failed: {}", e);
                 std::process::exit(1);
+            }
+        }
+        Commands::Validate { json } => {
+            let code = validate::validate(json);
+            if code != 0 {
+                std::process::exit(code);
             }
         }
     }

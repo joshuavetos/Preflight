@@ -16,4 +16,5 @@ pub mod snapshot;
 pub mod system_provider;
 pub mod tokenizer;
 pub mod utils;
+pub mod validate;
 pub mod watch;
