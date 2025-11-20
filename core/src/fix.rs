@@ -2,13 +2,13 @@ use crate::models::SystemState;
 use std::collections::HashMap;
 use std::fs;
 
-fn load_state() -> Result<SystemState, String> {
+pub fn load_state() -> Result<SystemState, String> {
     let raw = fs::read_to_string(".preflight/scan.json")
         .map_err(|e| format!("Unable to read scan.json: {e}"))?;
     serde_json::from_str(&raw).map_err(|e| format!("Invalid scan.json: {e}"))
 }
 
-fn commands() -> HashMap<&'static str, &'static str> {
+pub fn commands() -> HashMap<&'static str, &'static str> {
     HashMap::from([
         ("DOCKER_INACTIVE", "sudo systemctl start docker"),
         ("PORT_8000_BOUND", "sudo fuser -k 8000/tcp"),

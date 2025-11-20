@@ -427,6 +427,7 @@ fn detect_redis<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
 
 fn detect_gpu<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     let gpu_info = provider.command_output("nvidia-smi", &[]);
+    let lspci_output = provider.command_output("lspci", &[]);
     let cuda_version = provider.command_output("nvcc", &["--version"]);
     let cudnn_version = [
         "/usr/include/cudnn_version.h",
@@ -458,6 +459,12 @@ fn detect_gpu<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     if let Some(info) = &gpu_info {
         metadata.insert("nvidia_smi".into(), json!(info));
     }
+    if let Some(info) = &lspci_output {
+        let lower = info.to_lowercase();
+        metadata.insert("amd_gpu_detected".into(), json!(lower.contains("amd")));
+        let intel_graphics = lower.contains("intel") && lower.contains("graphics");
+        metadata.insert("intel_gpu_detected".into(), json!(intel_graphics));
+    }
     if let Some(cuda) = &cuda_version {
         metadata.insert("cuda_version".into(), json!(cuda));
     }
@@ -465,7 +472,16 @@ fn detect_gpu<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
         metadata.insert("cudnn_version".into(), json!(cudnn));
     }
 
-    let status = if gpu_info.is_some() {
+    let amd_detected = metadata
+        .get("amd_gpu_detected")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let intel_detected = metadata
+        .get("intel_gpu_detected")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let status = if gpu_info.is_some() || amd_detected || intel_detected {
         Status::Active
     } else {
         Status::Inactive
