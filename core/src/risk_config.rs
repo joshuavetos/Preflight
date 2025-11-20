@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs};
 
 /// Fallback config if file missing or corrupt
@@ -14,7 +14,7 @@ fn default_config() -> RiskConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RiskConfig {
     pub issue_weights: HashMap<String, u32>,
     #[serde(default)]
