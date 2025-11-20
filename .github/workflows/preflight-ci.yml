@@ -1,0 +1,28 @@
+name: Preflight CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build
+        run: cargo build --workspace --locked
+      - name: Run preflight scan
+        run: cargo run -p preflight -- scan
+      - name: Fail on critical issues
+        run: |
+          STATE=.preflight/scan.json
+          if [ ! -f "$STATE" ]; then
+            echo "scan.json missing" && exit 1
+          fi
+          if jq '.issues[] | select(.severity == "Critical")' "$STATE" | grep -q .; then
+            echo "Critical issues detected" && exit 1
+          fi

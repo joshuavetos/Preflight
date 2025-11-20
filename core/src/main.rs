@@ -8,13 +8,19 @@ mod utils;
 mod command_ast;
 mod config;
 mod doctor;
+mod exporter;
+mod fix;
+mod history;
 mod json_diff;
 mod proposed_state;
+mod remote;
 mod risk;
 mod risk_config;
+mod snapshot;
 mod system_provider;
 mod tokenizer;
 mod updater;
+mod watch;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -28,23 +34,53 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Scan,
-    Simulate { command: String },
-    SimulateProposed { command: String },
+    Scan {
+        #[arg(long)]
+        remote: Option<String>,
+    },
+    Simulate {
+        command: String,
+    },
+    SimulateProposed {
+        command: String,
+    },
     Dashboard,
     Doctor,
     Upgrade,
+    Fix,
+    Diff,
+    Watch,
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotCommand,
+    },
+    Export {
+        #[arg(long)]
+        format: String,
+    },
 }
 
-fn scan_command() -> Result<models::SystemState, String> {
-    let mut state = scanner::perform_scan();
-    graph::derive_edges(&mut state);
-    state.issues = oracle::evaluate(&state);
-    state.assert_contract();
+#[derive(Subcommand)]
+enum SnapshotCommand {
+    Save { name: String },
+    Restore { name: String },
+}
 
-    let path = PathBuf::from(".preflight/scan.json");
-    utils::write_state(&path, &state).map_err(|e| format!("Failed to write scan: {}", e))?;
+fn scan_command(remote: Option<String>) -> Result<models::SystemState, String> {
+    let mut state = if let Some(target) = remote {
+        remote::remote_scan(&target)?
+    } else {
+        let mut local_state = scanner::perform_scan();
+        graph::derive_edges(&mut local_state);
+        local_state.issues = oracle::evaluate(&local_state);
+        local_state.assert_contract();
+        let path = PathBuf::from(".preflight/scan.json");
+        utils::write_state(&path, &local_state)
+            .map_err(|e| format!("Failed to write scan: {}", e))?;
+        local_state
+    };
 
+    history::record_scan(&state)?;
     println!("Preflight scan complete. {}", graph::summarize(&state));
     Ok(state)
 }
@@ -96,8 +132,8 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Scan => {
-            if let Err(e) = scan_command() {
+        Commands::Scan { remote } => {
+            if let Err(e) = scan_command(remote) {
                 eprintln!("Scan failed: {}", e);
                 std::process::exit(1);
             }
@@ -121,6 +157,44 @@ async fn main() {
         Commands::Upgrade => {
             if let Err(e) = updater::upgrade() {
                 eprintln!("Upgrade failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Fix => {
+            if let Err(e) = fix::run() {
+                eprintln!("Fix suggestions failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Diff => {
+            if let Err(e) = history::diff_latest() {
+                eprintln!("Diff failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Watch => {
+            if let Err(e) = watch::run().await {
+                eprintln!("Watch failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Snapshot { action } => match action {
+            SnapshotCommand::Save { name } => {
+                if let Err(e) = snapshot::save(&name) {
+                    eprintln!("Snapshot save failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+            SnapshotCommand::Restore { name } => {
+                if let Err(e) = snapshot::restore(&name) {
+                    eprintln!("Snapshot restore failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        },
+        Commands::Export { format } => {
+            if let Err(e) = exporter::export(&format) {
+                eprintln!("Export failed: {}", e);
                 std::process::exit(1);
             }
         }
