@@ -1,11 +1,14 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::SystemTime;
 
 pub trait SystemProvider: Send + Sync {
     fn file_exists(&self, path: &str) -> bool;
     fn read_file(&self, path: &str) -> Option<String>;
     fn command_output(&self, cmd: &str, args: &[&str]) -> Option<String>;
+    fn list_dir(&self, path: &str) -> Option<Vec<String>>;
+    fn modification_time(&self, path: &str) -> Option<SystemTime>;
 }
 
 pub struct RealSystemProvider;
@@ -35,5 +38,19 @@ impl SystemProvider for RealSystemProvider {
         } else {
             Some(stdout)
         }
+    }
+
+    fn list_dir(&self, path: &str) -> Option<Vec<String>> {
+        let entries = fs::read_dir(path).ok()?;
+        Some(
+            entries
+                .flatten()
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect(),
+        )
+    }
+
+    fn modification_time(&self, path: &str) -> Option<SystemTime> {
+        fs::metadata(path).ok().and_then(|m| m.modified().ok())
     }
 }
