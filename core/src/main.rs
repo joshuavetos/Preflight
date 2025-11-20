@@ -1,4 +1,3 @@
-mod config;
 mod doctor;
 mod graph;
 mod models;
