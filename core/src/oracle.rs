@@ -80,6 +80,76 @@ pub fn evaluate(state: &SystemState) -> Vec<Issue> {
                             suggestion: "Create and activate a virtual environment via venv, pipenv, poetry, or conda.".into(),
                         });
                     }
+                    let missing = node
+                        .metadata
+                        .get("python_requirements_missing")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    if !missing.is_empty() {
+                        let missing_list: Vec<String> = missing
+                            .iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect();
+                        if !missing_list.is_empty() {
+                            issues.push(Issue {
+                                code: "PYTHON_PACKAGE_MISSING".into(),
+                                severity: Severity::Warning,
+                                title: "Python packages missing".into(),
+                                description: format!(
+                                    "requirements.txt lists missing packages: {}.",
+                                    missing_list.join(", ")
+                                ),
+                                suggestion: "Install missing dependencies with pip install -r requirements.txt.".into(),
+                            });
+                        }
+                    }
+                    let drifts = node
+                        .metadata
+                        .get("python_requirements_drift")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    if !drifts.is_empty() {
+                        let details: Vec<String> = drifts
+                            .iter()
+                            .filter_map(|entry| {
+                                let name = entry.get("name")?.as_str()?;
+                                let required = entry.get("required")?.as_str().unwrap_or("");
+                                let installed = entry.get("installed")?.as_str().unwrap_or("");
+                                Some(format!("{} ({} -> {})", name, required, installed))
+                            })
+                            .collect();
+                        if !details.is_empty() {
+                            issues.push(Issue {
+                                code: "PYTHON_REQUIREMENTS_DRIFT".into(),
+                                severity: Severity::Warning,
+                                title: "Python dependency drift".into(),
+                                description: format!(
+                                    "Installed packages do not satisfy requirements: {}.",
+                                    details.join(", ")
+                                ),
+                                suggestion:
+                                    "Reinstall dependencies with pip install -r requirements.txt or update pinned versions.".into(),
+                            });
+                        }
+                    }
+                    let lock_drift = node
+                        .metadata
+                        .get("python_lockfile_drift")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    if lock_drift {
+                        issues.push(Issue {
+                            code: "PYTHON_LOCKFILE_DRIFT".into(),
+                            severity: Severity::Warning,
+                            title: "Python lockfile drift".into(),
+                            description:
+                                "Pipfile.lock or poetry.lock is older than its source manifest.".into(),
+                            suggestion:
+                                "Regenerate the lockfile with pipenv lock or poetry lock to capture current requirements.".into(),
+                        });
+                    }
                     let v = node.metadata.get("version").and_then(|v| v.as_str());
                     let v3 = node
                         .metadata
@@ -153,6 +223,39 @@ pub fn evaluate(state: &SystemState) -> Vec<Issue> {
                         description: "package.json is newer than package-lock.json.".into(),
                         suggestion: "Regenerate lockfile to reflect package.json changes.".into(),
                     });
+                }
+                let version_mismatches = node
+                    .metadata
+                    .get("node_version_mismatches")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                if !version_mismatches.is_empty() {
+                    let details: Vec<String> = version_mismatches
+                        .iter()
+                        .filter_map(|entry| {
+                            let name = entry.get("name")?.as_str()?;
+                            let required = entry.get("required")?.as_str().unwrap_or("");
+                            let installed = entry
+                                .get("installed")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("missing");
+                            Some(format!("{} ({} -> {})", name, required, installed))
+                        })
+                        .collect();
+                    if !details.is_empty() {
+                        issues.push(Issue {
+                            code: "NODE_VERSION_MISMATCH".into(),
+                            severity: Severity::Warning,
+                            title: "Node dependency drift".into(),
+                            description: format!(
+                                "Installed Node modules do not satisfy package.json: {}.",
+                                details.join(", ")
+                            ),
+                            suggestion:
+                                "Install or update dependencies to satisfy declared semantic versions.".into(),
+                        });
+                    }
                 }
             }
             "postgres" => {

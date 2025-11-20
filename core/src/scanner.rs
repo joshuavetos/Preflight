@@ -1,9 +1,50 @@
 use crate::models::{Node, NodeType, Status, SystemState};
 use crate::system_provider::{RealSystemProvider, SystemProvider};
 use chrono::Utc;
+use semver::{Version, VersionReq};
 use serde_json::json;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::env;
+
+fn version_satisfies(requirement: &str, actual: &str) -> bool {
+    let normalized = if requirement.starts_with("==") {
+        format!("={}", requirement.trim_start_matches("=="))
+    } else if requirement.starts_with('=') {
+        format!("={}", requirement.trim_start_matches('='))
+    } else if requirement.starts_with("~=") {
+        format!("^{}", requirement.trim_start_matches("~="))
+    } else {
+        requirement.to_string()
+    };
+
+    let actual_clean = actual.trim_start_matches('v');
+    if let (Ok(req), Ok(ver)) = (VersionReq::parse(&normalized), Version::parse(actual_clean)) {
+        req.matches(&ver)
+    } else {
+        normalized.trim_start_matches('=').trim() == actual_clean.trim()
+    }
+}
+
+fn parse_requirement_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.split('#').next()?.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    for sep in ["==", ">=", "<=", "~=", ">", "<", "="] {
+        if let Some((name, ver)) = trimmed.split_once(sep) {
+            let normalized = if sep == "==" || sep == "=" {
+                format!("={}", ver.trim())
+            } else if sep == "~=" {
+                format!("^{}", ver.trim())
+            } else {
+                format!("{}{}", sep, ver.trim())
+            };
+            return Some((name.trim().to_lowercase(), normalized));
+        }
+    }
+    Some((trimmed.to_lowercase(), "*".into()))
+}
 
 fn check_port<P: SystemProvider>(provider: &P, port: u16) -> Status {
     let probe = format!(
@@ -29,6 +70,79 @@ fn detect_python<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     let poetry_active = env::var("POETRY_ACTIVE").is_ok();
     let conda_active = env::var("CONDA_DEFAULT_ENV").is_ok() || env::var("CONDA_PREFIX").is_ok();
 
+    let requirements_path = "requirements.txt";
+    let requirements_present = provider.file_exists(requirements_path);
+    let mut requirements = HashMap::new();
+    if requirements_present {
+        if let Some(contents) = provider.read_file(requirements_path) {
+            for line in contents.lines() {
+                if let Some((name, req)) = parse_requirement_line(line) {
+                    requirements.insert(name, req);
+                }
+            }
+        }
+    }
+
+    let pip_freeze = provider
+        .command_output("python", &["-m", "pip", "freeze"])
+        .or_else(|| provider.command_output("python3", &["-m", "pip", "freeze"]))
+        .or_else(|| provider.command_output("pip", &["freeze"]))
+        .or_else(|| provider.command_output("pip3", &["freeze"]));
+    let mut installed = HashMap::new();
+    if let Some(output) = pip_freeze {
+        for line in output.lines() {
+            if let Some((name, ver)) = line.split_once("==") {
+                installed.insert(name.trim().to_lowercase(), ver.trim().to_string());
+            }
+        }
+    }
+
+    let mut missing_packages: Vec<Value> = Vec::new();
+    let mut version_drifts: Vec<Value> = Vec::new();
+    for (name, req) in requirements.iter() {
+        match installed.get(name) {
+            Some(actual) => {
+                if req != "*" && !version_satisfies(req, actual) {
+                    version_drifts.push(json!({
+                        "name": name,
+                        "required": req,
+                        "installed": actual,
+                    }));
+                }
+            }
+            None => missing_packages.push(json!(name)),
+        }
+    }
+
+    let pipfile_drift = if provider.file_exists("Pipfile") && provider.file_exists("Pipfile.lock") {
+        if let (Some(pip), Some(lock)) = (
+            provider.modification_time("Pipfile"),
+            provider.modification_time("Pipfile.lock"),
+        ) {
+            pip > lock
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let poetry_drift =
+        if provider.file_exists("pyproject.toml") && provider.file_exists("poetry.lock") {
+            if let (Some(pyproject), Some(lock)) = (
+                provider.modification_time("pyproject.toml"),
+                provider.modification_time("poetry.lock"),
+            ) {
+                pyproject > lock
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+    let lockfile_drift = pipfile_drift || poetry_drift;
+
     let mut metadata = HashMap::new();
     if let Some(v) = &version {
         metadata.insert("version".into(), json!(v));
@@ -40,6 +154,13 @@ fn detect_python<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     metadata.insert("pipenv".into(), json!(pipenv_active));
     metadata.insert("poetry".into(), json!(poetry_active));
     metadata.insert("conda".into(), json!(conda_active));
+    metadata.insert("requirements_present".into(), json!(requirements_present));
+    metadata.insert(
+        "python_requirements_missing".into(),
+        json!(missing_packages),
+    );
+    metadata.insert("python_requirements_drift".into(), json!(version_drifts));
+    metadata.insert("python_lockfile_drift".into(), json!(lockfile_drift));
 
     let status = if version.is_some() {
         Status::Active
@@ -97,12 +218,66 @@ fn detect_nodejs<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
         }
     }
 
+    let mut declared_dependencies: Vec<(String, String)> = Vec::new();
+    if package_json_present {
+        if let Some(contents) = provider.read_file("package.json") {
+            if let Ok(pkg) = serde_json::from_str::<Value>(&contents) {
+                if let Some(deps) = pkg.get("dependencies").and_then(|v| v.as_object()) {
+                    for (name, val) in deps.iter() {
+                        if let Some(req) = val.as_str() {
+                            declared_dependencies.push((name.to_string(), req.to_string()));
+                        }
+                    }
+                }
+                if let Some(deps) = pkg.get("devDependencies").and_then(|v| v.as_object()) {
+                    for (name, val) in deps.iter() {
+                        if let Some(req) = val.as_str() {
+                            declared_dependencies.push((name.to_string(), req.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut version_mismatches: Vec<Value> = Vec::new();
+    if node_modules_exists {
+        for (name, req) in &declared_dependencies {
+            let path = format!("node_modules/{}/package.json", name);
+            let installed_version = provider
+                .read_file(&path)
+                .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+                .and_then(|v| {
+                    v.get("version")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                });
+            match installed_version {
+                Some(installed) => {
+                    if !version_satisfies(req, &installed) {
+                        version_mismatches.push(json!({
+                            "name": name,
+                            "required": req,
+                            "installed": installed,
+                        }));
+                    }
+                }
+                None => version_mismatches.push(json!({
+                    "name": name,
+                    "required": req,
+                    "installed": Value::Null,
+                })),
+            }
+        }
+    }
+
     metadata.insert("package_json_present".into(), json!(package_json_present));
     metadata.insert(
         "node_modules_mismatch".into(),
         json!(package_json_present && !node_modules_exists),
     );
     metadata.insert("lockfile_drift".into(), json!(lockfile_drift));
+    metadata.insert("node_version_mismatches".into(), json!(version_mismatches));
 
     if let Some(v) = &node_version {
         metadata.insert("version".into(), json!(v));
