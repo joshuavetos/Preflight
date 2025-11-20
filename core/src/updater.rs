@@ -1,93 +1,150 @@
-use anyhow::{anyhow, Result};
-use reqwest::blocking::Client;
-use sha2::{Digest, Sha256};
 use std::fs;
+use std::path::Path;
 
-#[derive(Debug, serde::Deserialize)]
-struct ReleaseManifest {
-    version: String,
-    linux_url: Option<String>,
-    mac_url: Option<String>,
-    windows_url: Option<String>,
-    sha256: String,
+use anyhow::{anyhow, Context, Result};
+use reqwest::blocking::Client;
+use semver::Version;
+use serde::Deserialize;
+
+use crate::utils;
+
+const ORG: &str = "PreflightHQ";
+const REPO: &str = "Preflight";
+const LATEST_RELEASE_URL: &str =
+    "https://api.github.com/repos/PreflightHQ/Preflight/releases/latest";
+
+#[derive(Debug, Deserialize)]
+struct GitHubAsset {
+    name: String,
+    browser_download_url: String,
 }
 
-const DEFAULT_MANIFEST_URL: &str =
-    "https://raw.githubusercontent.com/PreflightHQ/Preflight/main/releases.json";
+#[derive(Debug, Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    assets: Vec<GitHubAsset>,
+}
 
-pub fn upgrade() -> Result<()> {
-    println!("\n=== Preflight Updater ===");
+pub struct ReleaseInfo {
+    pub version: Version,
+    pub download_url: String,
+}
 
-    let manifest_url = std::env::var("PREFLIGHT_MANIFEST_URL")
-        .unwrap_or_else(|_| DEFAULT_MANIFEST_URL.to_string());
-
-    println!("Fetching manifest from {manifest_url}...");
+pub fn fetch_latest_release() -> Result<ReleaseInfo> {
     let client = Client::new();
-    let manifest_text = client.get(&manifest_url).send()?.text()?;
+    let release: GitHubRelease = client
+        .get(LATEST_RELEASE_URL)
+        .header(
+            reqwest::header::USER_AGENT,
+            format!("preflight-updater ({ORG}/{REPO})"),
+        )
+        .send()
+        .context("failed to fetch latest release metadata")?
+        .json()
+        .context("failed to parse GitHub release response")?;
 
-    let manifest: ReleaseManifest =
-        serde_json::from_str(&manifest_text).map_err(|e| anyhow!("Invalid manifest: {e}"))?;
+    let version_str = release.tag_name.trim_start_matches('v');
+    let version = Version::parse(version_str)
+        .with_context(|| format!("invalid semver tag in release: {}", release.tag_name))?;
 
-    let current = env!("CARGO_PKG_VERSION");
-    if manifest.version == current {
-        println!("You're already on the latest version: {current}");
-        return Ok(());
-    }
-
-    println!("Latest version available: {}", manifest.version);
-
-    // Select URL for this OS
     let os = std::env::consts::OS;
-    let url = match os {
-        "linux" => manifest
-            .linux_url
-            .ok_or_else(|| anyhow!("No Linux build in manifest"))?,
-        "macos" | "darwin" => manifest
-            .mac_url
-            .ok_or_else(|| anyhow!("No macOS build in manifest"))?,
-        "windows" => manifest
-            .windows_url
-            .ok_or_else(|| anyhow!("No Windows build in manifest"))?,
-        _ => return Err(anyhow!("Unsupported OS: {os}")),
-    };
+    let download_url = release
+        .assets
+        .iter()
+        .find(|asset| match os {
+            "linux" => asset.name.to_lowercase().contains("linux"),
+            "macos" | "darwin" => {
+                let name = asset.name.to_lowercase();
+                name.contains("macos") || name.contains("darwin") || name.contains("apple")
+            }
+            "windows" => asset.name.to_lowercase().contains("win"),
+            _ => false,
+        })
+        .map(|asset| asset.browser_download_url.clone())
+        .ok_or_else(|| anyhow!("no downloadable asset found for {os}"))?;
 
-    println!("Downloading binary from: {url}");
-    let bytes = client.get(&url).send()?.bytes()?;
+    Ok(ReleaseInfo {
+        version,
+        download_url,
+    })
+}
 
-    // Verify checksum
-    println!("Verifying checksum...");
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    let hash = format!("{:x}", hasher.finalize());
+pub fn download_binary(url: &str, dest_tmp: &Path) -> Result<()> {
+    let client = Client::new();
+    let bytes = client
+        .get(url)
+        .header(
+            reqwest::header::USER_AGENT,
+            format!("preflight-updater ({ORG}/{REPO})"),
+        )
+        .send()
+        .context("failed to download binary")?
+        .bytes()
+        .context("failed to read binary stream")?;
 
-    if hash != manifest.sha256 {
-        return Err(anyhow!("Checksum mismatch — aborting update"));
+    if let Some(parent) = dest_tmp.parent() {
+        fs::create_dir_all(parent)?;
     }
 
-    // Determine install path
-    let install_path = std::env::current_exe()?;
-    let tmp_path = install_path.with_extension("tmp");
-
-    println!("Installing to: {install_path:?}");
-
-    // Write tmp file
-    fs::write(&tmp_path, &bytes)?;
+    fs::write(dest_tmp, &bytes)?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&tmp_path)?.permissions();
+        let mut perms = fs::metadata(dest_tmp)?.permissions();
         perms.set_mode(0o755);
-        fs::set_permissions(&tmp_path, perms)?;
+        fs::set_permissions(dest_tmp, perms)?;
     }
 
-    // Atomic replace
-    fs::rename(&tmp_path, &install_path)?;
+    Ok(())
+}
 
-    println!(
-        "✔ Upgrade complete! Now running version {}",
-        manifest.version
-    );
+pub fn atomic_swap(tmp: &Path, current_path: &Path) -> Result<()> {
+    fs::rename(tmp, current_path).context("failed to replace current binary")
+}
+
+pub fn upgrade(json_output: bool) -> Result<()> {
+    let current_version = Version::parse(env!("CARGO_PKG_VERSION"))?;
+    let release = fetch_latest_release()?;
+
+    if release.version <= current_version {
+        if json_output {
+            let payload = utils::json_envelope(
+                "upgrade",
+                "ok",
+                serde_json::json!({
+                    "message": "already up-to-date"
+                }),
+            );
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            println!("You're already on the latest version: {}", current_version);
+        }
+        return Ok(());
+    }
+
+    let tmp_path = Path::new(".preflight").join("preflight.tmp");
+    download_binary(&release.download_url, &tmp_path)?;
+
+    let current_path = std::env::current_exe()?;
+    atomic_swap(&tmp_path, &current_path)?;
+
+    if json_output {
+        let payload = utils::json_envelope(
+            "upgrade",
+            "ok",
+            serde_json::json!({
+                "from": current_version.to_string(),
+                "to": release.version.to_string()
+            }),
+        );
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!(
+            "✔ Upgrade complete! {} → {}",
+            current_version, release.version
+        );
+    }
 
     Ok(())
 }

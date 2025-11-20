@@ -215,7 +215,7 @@ async fn main() {
             }
         }
         Commands::Upgrade => {
-            if let Err(e) = updater::upgrade() {
+            if let Err(e) = updater::upgrade(cli.json) {
                 eprintln!("Upgrade failed: {}", e);
                 std::process::exit(1);
             }
