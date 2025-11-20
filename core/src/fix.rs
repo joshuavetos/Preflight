@@ -1,6 +1,15 @@
 use crate::models::SystemState;
+use crate::utils::json_envelope;
+use serde::Serialize;
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FixCommand {
+    pub code: String,
+    pub command: String,
+}
 
 pub fn load_state() -> Result<SystemState, String> {
     let raw = fs::read_to_string(".preflight/scan.json")
@@ -56,16 +65,36 @@ pub fn commands() -> HashMap<&'static str, &'static str> {
     ])
 }
 
-pub fn run() -> Result<(), String> {
+pub fn run(json_output: bool) -> Result<(), String> {
     let state = load_state()?;
     let fixes = commands();
+    let mut rendered: Vec<FixCommand> = Vec::new();
     println!("Suggested fixes ({} issues):", state.issues.len());
     for issue in state.issues {
         if let Some(cmd) = fixes.get(issue.code.as_str()) {
+            rendered.push(FixCommand {
+                code: issue.code.clone(),
+                command: cmd.to_string(),
+            });
             println!("- {}: {}", issue.code, cmd);
         } else {
+            rendered.push(FixCommand {
+                code: issue.code.clone(),
+                command: issue.suggestion.clone(),
+            });
             println!("- {}: {}", issue.code, issue.suggestion);
         }
+    }
+
+    if json_output {
+        let payload = json_envelope(
+            "fix",
+            "ok",
+            json!({
+                "fixes": rendered
+            }),
+        );
+        println!("{}", serde_json::to_string_pretty(&payload).unwrap());
     }
     Ok(())
 }

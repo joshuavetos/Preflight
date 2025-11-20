@@ -1,4 +1,5 @@
 use regex::Regex;
+use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,7 +24,10 @@ fn module_name(path: &Path) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-pub fn run() -> Result<(), String> {
+#[derive(Debug, Serialize)]
+pub struct DependencyGraph(pub BTreeMap<String, Vec<String>>);
+
+pub fn collect_graph() -> Result<DependencyGraph, String> {
     let root = PathBuf::from("core/src");
     let use_re = Regex::new(r"^use\\s+crate::([a-zA-Z0-9_]+)").unwrap();
     let mut graph: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -48,11 +52,21 @@ pub fn run() -> Result<(), String> {
         }
     }
 
-    for (module, deps) in graph {
+    let normalized = graph
+        .into_iter()
+        .map(|(module, deps)| (module, deps.into_iter().collect::<Vec<_>>()))
+        .collect();
+
+    Ok(DependencyGraph(normalized))
+}
+
+pub fn run() -> Result<(), String> {
+    let graph = collect_graph()?;
+    for (module, deps) in graph.0 {
         let deps_list = if deps.is_empty() {
             String::from("(no imports)")
         } else {
-            deps.into_iter().collect::<Vec<_>>().join(", ")
+            deps.join(", ")
         };
         println!("{} -> {}", module, deps_list);
     }

@@ -16,6 +16,7 @@ export default function App() {
   const [state, setState] = useState<SystemState | null>(null);
   const [previousEtag, setPreviousEtag] = useState<string | null>(null);
   const [fadeClass, setFadeClass] = useState("");
+  const [lastModified, setLastModified] = useState<string | null>(null);
 
   useEffect(() => {
     const run = async () => {
@@ -42,16 +43,30 @@ export default function App() {
           setFadeClass('fade-in');
         }, 350);
 
+        setLastModified(newState.timestamp);
         if (newEtag) setPreviousEtag(newEtag);
       } catch (err) {
         console.error('Fetch error', err);
       }
     };
-
     run();
-    const id = setInterval(run, 3000);
+
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch('/api/mtime', { cache: 'no-cache' });
+        if (!res.ok) return;
+        const body = (await res.json()) as { timestamp?: string };
+        if (body.timestamp && body.timestamp !== lastModified) {
+          setLastModified(body.timestamp);
+          await run();
+        }
+      } catch (err) {
+        console.error('poll error', err);
+      }
+    }, 2000);
+
     return () => clearInterval(id);
-  }, [previousEtag]);
+  }, [previousEtag, lastModified]);
 
   const badge = statusLabel(state);
 
