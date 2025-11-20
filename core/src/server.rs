@@ -1,8 +1,10 @@
 use crate::{
+    graph,
     models::SystemState,
+    oracle,
     risk::{risk_score, summarize_risk},
     risk_config::RiskConfig,
-    scanner,
+    scanner, utils,
 };
 use axum::{
     http::{header, StatusCode},
@@ -17,45 +19,50 @@ use tower_http::services::ServeDir;
 async fn api_state_handler() -> impl IntoResponse {
     let path = PathBuf::from(".preflight/scan.json");
 
-    if !path.exists() {
+    let state_result = if !path.exists() {
         println!("No scan found — auto-running `preflight scan`...");
-        let _ = scanner::perform_scan();
-    }
 
-    match fs::read_to_string(&path).await {
-        Ok(contents) => match serde_json::from_str::<SystemState>(&contents) {
-            Ok(state) => {
-                // Load dynamic risk config
-                let cfg = RiskConfig::load();
+        let mut state = scanner::perform_scan();
+        graph::derive_edges(&mut state);
+        state.issues = oracle::evaluate(&state);
+        state.assert_contract();
 
-                let total_risk = summarize_risk(&state.issues, &cfg);
-                let issue_breakdown: Vec<(String, u32)> = state
-                    .issues
-                    .iter()
-                    .map(|issue| (issue.code.clone(), risk_score(issue, &cfg)))
-                    .collect();
+        if let Err(err) = utils::write_state(&path, &state) {
+            eprintln!("Failed to persist auto-run scan: {err}");
+        }
 
-                let mut val = serde_json::to_value(&state).expect("state serialize");
+        Ok(state)
+    } else {
+        match fs::read_to_string(&path).await {
+            Ok(contents) => serde_json::from_str::<SystemState>(&contents)
+                .map_err(|err| format!("Corrupt scan.json: {err}")),
+            Err(err) => Err(format!("Unable to read scan file: {err}")),
+        }
+    };
 
-                val["risk_score_total"] = serde_json::json!(total_risk);
-                val["risk_issue_breakdown"] = serde_json::json!(issue_breakdown);
-                val["risk_config"] = serde_json::to_value(&cfg).unwrap();
+    match state_result {
+        Ok(state) => {
+            // Load dynamic risk config
+            let cfg = RiskConfig::load();
 
-                let etag_value = format!("W/\"{}-{}\"", state.timestamp, state.version);
+            let total_risk = summarize_risk(&state.issues, &cfg);
+            let issue_breakdown: Vec<(String, u32)> = state
+                .issues
+                .iter()
+                .map(|issue| (issue.code.clone(), risk_score(issue, &cfg)))
+                .collect();
 
-                (StatusCode::OK, [(header::ETAG, etag_value)], Json(val)).into_response()
-            }
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Corrupt scan.json: {err}"),
-            )
-                .into_response(),
-        },
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Unable to read scan file: {err}"),
-        )
-            .into_response(),
+            let mut val = serde_json::to_value(&state).expect("state serialize");
+
+            val["risk_score_total"] = serde_json::json!(total_risk);
+            val["risk_issue_breakdown"] = serde_json::json!(issue_breakdown);
+            val["risk_config"] = serde_json::to_value(&cfg).unwrap();
+
+            let etag_value = format!("W/\"{}-{}\"", state.timestamp, state.version);
+
+            (StatusCode::OK, [(header::ETAG, etag_value)], Json(val)).into_response()
+        }
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err).into_response(),
     }
 }
 
