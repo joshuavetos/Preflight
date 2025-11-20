@@ -1,5 +1,4 @@
 use crate::{
-    config::RiskConfig,
     models::SystemState,
     risk::{risk_score, summarize_risk},
 };
@@ -14,25 +13,23 @@ use tokio::fs;
 use tower_http::services::ServeDir;
 
 async fn api_state_handler() -> impl IntoResponse {
-    let cfg = match RiskConfig::load() {
-        Ok(c) => c,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
-    };
-
     let path = PathBuf::from(".preflight/scan.json");
     if !path.exists() {
-        return (StatusCode::NOT_FOUND, "Scan file not found. Run `preflight scan` first.")
+        return (
+            StatusCode::NOT_FOUND,
+            "Scan file not found. Run `preflight scan` first.",
+        )
             .into_response();
     }
 
     match fs::read_to_string(&path).await {
         Ok(contents) => match serde_json::from_str::<SystemState>(&contents) {
             Ok(state) => {
-                let total_risk = summarize_risk(&state.issues, &cfg);
+                let total_risk = summarize_risk(&state.issues);
                 let breakdown: Vec<(String, u32)> = state
                     .issues
                     .iter()
-                    .map(|i| (i.code.clone(), risk_score(i, &cfg)))
+                    .map(|i| (i.code.clone(), risk_score(i)))
                     .collect();
 
                 let mut val = serde_json::to_value(&state).unwrap();

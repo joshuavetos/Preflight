@@ -1,0 +1,11 @@
+keyword_weights = [
+    ["port", 20],
+    ["bind", 20],
+    ["docker", 10],
+    ["gpu", 10],
+    ["compose", 15],
+    ["memory", 15],
+]
+
+severity_critical = 60
+severity_warning = 30

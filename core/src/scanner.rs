@@ -1,262 +1,84 @@
 use crate::models::{Node, NodeType, Status, SystemState};
+use crate::system_provider::{RealSystemProvider, SystemProvider};
 use chrono::Utc;
 use serde_json::json;
 use std::collections::HashMap;
 use std::net::TcpListener;
-use std::path::Path;
-use std::process::Command;
-use std::str;
-use sysinfo::{System, SystemExt};
 
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
-
-#[cfg(windows)]
-use std::fs::OpenOptions;
-
-#[cfg(windows)]
-use std::net::TcpStream;
-
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
-
-fn docker_active_with_metadata() -> (Status, HashMap<String, serde_json::Value>) {
-    #[cfg(unix)]
-    {
-        let path = "/var/run/docker.sock";
-        let mut metadata = HashMap::new();
-        metadata.insert("socket".to_string(), json!(path));
-        if Path::new(path).exists() {
-            match UnixStream::connect(path) {
-                Ok(_) => (Status::Active, metadata),
-                Err(e) => {
-                    metadata.insert("error".to_string(), json!(e.to_string()));
-                    (Status::Inactive, metadata)
-                }
-            }
-        } else {
-            (Status::Inactive, metadata)
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        let pipe_path = Path::new(r"\\.\\pipe\\docker_engine");
-        let mut metadata = HashMap::new();
-        metadata.insert("pipe".to_string(), json!(pipe_path.to_string_lossy()));
-        if pipe_path.exists() {
-            let mut options = OpenOptions::new();
-            options.read(true).write(true);
-            options.custom_flags(0);
-            match options.open(pipe_path) {
-                Ok(_) => (Status::Active, metadata),
-                Err(e) => {
-                    metadata.insert("error".to_string(), json!(e.to_string()));
-                    (Status::Inactive, metadata)
-                }
-            }
-        } else if TcpStream::connect("127.0.0.1:2375").is_ok() {
-            metadata.insert("tcp".to_string(), json!("127.0.0.1:2375"));
-            (Status::Active, metadata)
-        } else {
-            (Status::Inactive, metadata)
-        }
-    }
-}
-
-fn port_status(port: u16) -> Status {
+fn check_port(port: u16) -> Status {
     match TcpListener::bind(("0.0.0.0", port)) {
         Ok(_) => Status::Inactive,
         Err(_) => Status::Active,
     }
 }
 
-pub fn perform_scan() -> SystemState {
-    let mut sys = System::new();
-    sys.refresh_system();
-    let os_name = sys.name().unwrap_or_else(|| "Unknown".to_string());
-    let kernel = sys
-        .kernel_version()
-        .unwrap_or_else(|| "unknown".to_string());
-
-    let timestamp = Utc::now().to_rfc3339();
-    let mut os_metadata = HashMap::new();
-    os_metadata.insert("kernel".to_string(), json!(kernel.clone()));
-    os_metadata.insert("timestamp".to_string(), json!(timestamp.clone()));
-    os_metadata.insert(
-        "auditor".to_string(),
-        json!("Tessrax Governance Kernel v16"),
-    );
-
-    let mut nodes = vec![Node {
-        id: "os".to_string(),
-        node_type: NodeType::Os,
-        label: os_name,
-        status: Status::Active,
-        metadata: os_metadata,
-    }];
-
-    let (docker_status, mut docker_metadata) = docker_active_with_metadata();
-    docker_metadata.insert(
-        "platform".to_string(),
-        json!(std::env::consts::OS.to_string()),
-    );
-    nodes.push(Node {
-        id: "docker".to_string(),
-        node_type: NodeType::Service,
-        label: "Docker Daemon".to_string(),
-        status: docker_status,
-        metadata: docker_metadata,
-    });
-
-    //-------------------------------//
-    // PYTHON DETECTOR
-    //-------------------------------//
-    let python_version = Command::new("python")
-        .arg("--version")
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                if let Ok(stdout) = str::from_utf8(&o.stdout) {
-                    let trimmed = stdout.trim();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed.to_string());
-                    }
-                }
-                if let Ok(stderr) = str::from_utf8(&o.stderr) {
-                    let trimmed = stderr.trim();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed.to_string());
-                    }
-                }
-            }
-            None
-        });
-
-    if let Some(version) = &python_version {
+fn detect_python<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
+    if let Some(version) = provider.command_output("python", &["--version"]) {
         let mut metadata = HashMap::new();
-        metadata.insert("version".to_string(), json!(version));
+        metadata.insert("version".into(), json!(version));
+
         nodes.push(Node {
-            id: "python".to_string(),
-            node_type: NodeType::Python,
-            label: format!("Python {version}"),
+            id: "python".into(),
+            node_type: NodeType::Runtime,
+            label: "Python".into(),
             status: Status::Active,
             metadata,
         });
     }
+}
 
-    //-------------------------------//
-    // POSTGRES DETECTOR
-    //-------------------------------//
-    let postgres_output = Command::new("psql").arg("--version").output();
-    if let Ok(out) = postgres_output {
-        if out.status.success() {
-            let mut metadata = HashMap::new();
-            if let Ok(text) = str::from_utf8(&out.stdout) {
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    metadata.insert("version".to_string(), json!(trimmed));
-                }
-            }
-            nodes.push(Node {
-                id: "postgres".to_string(),
-                node_type: NodeType::Postgres,
-                label: "PostgreSQL".to_string(),
-                status: Status::Active,
-                metadata,
-            });
-        }
-    }
+fn detect_docker<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
+    let mut metadata = HashMap::new();
+    let socket_path = "/var/run/docker.sock";
+    metadata.insert("socket".into(), json!(socket_path));
 
-    //-------------------------------//
-    // REDIS DETECTOR
-    //-------------------------------//
-    let redis_ping = Command::new("redis-cli").arg("PING").output();
-    if let Ok(out) = redis_ping {
-        if out.status.success() {
-            if let Ok(stdout) = str::from_utf8(&out.stdout) {
-                if stdout.trim().contains("PONG") {
-                    let mut metadata = HashMap::new();
-                    metadata.insert("reachable".to_string(), json!(true));
-                    nodes.push(Node {
-                        id: "redis".to_string(),
-                        node_type: NodeType::Redis,
-                        label: "Redis Server".to_string(),
-                        status: Status::Active,
-                        metadata,
-                    });
-                }
-            }
-        }
-    }
+    let docker_ok =
+        provider.file_exists(socket_path) || provider.command_output("docker", &["info"]).is_some();
 
-    //-------------------------------//
-    // GPU DETECTOR (NVIDIA)
-    //-------------------------------//
-    let gpu_query = Command::new("nvidia-smi").output();
-    if let Ok(out) = gpu_query {
-        if out.status.success() {
-            let mut metadata = HashMap::new();
-            if let Ok(stdout) = str::from_utf8(&out.stdout) {
-                let trimmed = stdout.trim();
-                if !trimmed.is_empty() {
-                    metadata.insert("nvidia_smi".to_string(), json!(trimmed));
-                }
-            }
-            nodes.push(Node {
-                id: "gpu".to_string(),
-                node_type: NodeType::Gpu,
-                label: "GPU (NVIDIA)".to_string(),
-                status: Status::Active,
-                metadata,
-            });
-        }
-    }
+    let status = if docker_ok {
+        Status::Active
+    } else {
+        Status::Inactive
+    };
 
-    //-------------------------------//
-    // DOCKER IMAGES DETECTOR
-    //-------------------------------//
-    let docker_images = Command::new("docker")
-        .arg("images")
-        .arg("--format")
-        .arg("{{.Repository}}:{{.Tag}}")
-        .output();
-
-    if let Ok(out) = docker_images {
-        if out.status.success() {
-            if let Ok(stdout) = str::from_utf8(&out.stdout) {
-                let images: Vec<String> = stdout
-                    .lines()
-                    .map(str::trim)
-                    .filter(|line| !line.is_empty())
-                    .map(|line| line.to_string())
-                    .collect();
-                let mut metadata = HashMap::new();
-                metadata.insert("count".to_string(), json!(images.len()));
-                metadata.insert("list".to_string(), json!(images));
-                nodes.push(Node {
-                    id: "docker_images".to_string(),
-                    node_type: NodeType::DockerImages,
-                    label: "Docker Images".to_string(),
-                    status: Status::Active,
-                    metadata,
-                });
-            }
-        }
-    }
-
-    let mut port_metadata = HashMap::new();
-    port_metadata.insert("protocol".to_string(), json!("tcp"));
-    port_metadata.insert("port".to_string(), json!(8000));
-    let port_status = port_status(8000);
     nodes.push(Node {
-        id: "port8000".to_string(),
-        node_type: NodeType::Port,
-        label: "Port 8000".to_string(),
-        status: port_status,
-        metadata: port_metadata,
+        id: "docker".into(),
+        node_type: NodeType::Service,
+        label: "Docker Daemon".into(),
+        status,
+        metadata,
     });
+}
+
+fn detect_port_8000(nodes: &mut Vec<Node>) {
+    let mut metadata = HashMap::new();
+    metadata.insert("protocol".into(), json!("tcp"));
+    metadata.insert("port".into(), json!(8000));
+
+    nodes.push(Node {
+        id: "port8000".into(),
+        node_type: NodeType::Port,
+        label: "Port 8000".into(),
+        status: check_port(8000),
+        metadata,
+    });
+}
+
+pub fn perform_scan() -> SystemState {
+    let provider = RealSystemProvider;
+
+    let timestamp = Utc::now().to_rfc3339();
+    let mut nodes = vec![Node {
+        id: "os".into(),
+        node_type: NodeType::Os,
+        label: std::env::consts::OS.into(),
+        status: Status::Active,
+        metadata: HashMap::new(),
+    }];
+
+    detect_docker(&provider, &mut nodes);
+    detect_python(&provider, &mut nodes);
+    detect_port_8000(&mut nodes);
 
     SystemState::new(nodes, Vec::new(), Vec::new(), timestamp)
 }
