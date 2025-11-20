@@ -477,6 +477,34 @@ pub fn evaluate(state: &SystemState) -> Vec<Issue> {
                 let cuda_version = node.metadata.get("cuda_version").and_then(|v| v.as_str());
                 let nvidia_smi = node.metadata.get("nvidia_smi").and_then(|v| v.as_str());
                 let cudnn_version = node.metadata.get("cudnn_version").and_then(|v| v.as_str());
+                let amd_gpu = node
+                    .metadata
+                    .get("amd_gpu_detected")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let intel_gpu = node
+                    .metadata
+                    .get("intel_gpu_detected")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if amd_gpu {
+                    issues.push(Issue {
+                        code: "GPU_AMD_DETECTED".into(),
+                        severity: Severity::Warning,
+                        title: "AMD GPU detected".into(),
+                        description: "An AMD GPU was detected via lspci.".into(),
+                        suggestion: "Ensure AMD drivers and ROCm are installed if required.".into(),
+                    });
+                }
+                if intel_gpu {
+                    issues.push(Issue {
+                        code: "GPU_INTEL_DETECTED".into(),
+                        severity: Severity::Warning,
+                        title: "Intel integrated graphics detected".into(),
+                        description: "Intel integrated graphics hardware reported by lspci.".into(),
+                        suggestion: "Install appropriate Intel graphics drivers if needed.".into(),
+                    });
+                }
                 if let (Some(cuda), Some(smi)) = (cuda_version, nvidia_smi) {
                     if let Some(smi_cuda) = smi.lines().find_map(|l| {
                         if l.contains("CUDA Version") {

@@ -8,6 +8,7 @@ mod validate;
 
 mod command_ast;
 mod config;
+mod deps;
 mod doctor;
 mod exporter;
 mod fix;
@@ -51,6 +52,7 @@ enum Commands {
     Fix,
     Diff,
     Watch,
+    Deps,
     Snapshot {
         #[command(subcommand)]
         action: SnapshotCommand,
@@ -162,6 +164,12 @@ async fn main() {
         Commands::Upgrade => {
             if let Err(e) = updater::upgrade() {
                 eprintln!("Upgrade failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Deps => {
+            if let Err(e) = deps::run() {
+                eprintln!("Deps failed: {}", e);
                 std::process::exit(1);
             }
         }

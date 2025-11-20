@@ -52,7 +52,11 @@ pub fn validate(json_output: bool) -> i32 {
         }
     }
 
-    if has_violations { 1 } else { 0 }
+    if has_violations {
+        1
+    } else {
+        0
+    }
 }
 
 fn scan_files(src_root: &Path, manifest: &Path) -> Result<Vec<Violation>, String> {
@@ -69,8 +73,11 @@ fn scan_files(src_root: &Path, manifest: &Path) -> Result<Vec<Violation>, String
 }
 
 fn collect_rs_files(dir: &Path, acc: &mut Vec<PathBuf>) -> Result<(), String> {
-    for entry in fs::read_dir(dir).map_err(|e| format!("Failed to read {}: {}", dir.display(), e))? {
-        let entry = entry.map_err(|e| format!("Failed to read entry in {}: {}", dir.display(), e))?;
+    for entry in
+        fs::read_dir(dir).map_err(|e| format!("Failed to read {}: {}", dir.display(), e))?
+    {
+        let entry =
+            entry.map_err(|e| format!("Failed to read entry in {}: {}", dir.display(), e))?;
         let path = entry.path();
         if path.is_dir() {
             collect_rs_files(&path, acc)?;
