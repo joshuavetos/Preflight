@@ -1,0 +1,7 @@
+{
+  "version": "0.1.0",
+  "linux_url": "https://github.com/PreflightHQ/Preflight/releases/download/v0.1.0/preflight-linux.tar.gz",
+  "mac_url": "https://github.com/PreflightHQ/Preflight/releases/download/v0.1.0/preflight-macos.tar.gz",
+  "windows_url": "https://github.com/PreflightHQ/Preflight/releases/download/v0.1.0/preflight-windows.zip",
+  "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

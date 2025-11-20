@@ -14,6 +14,7 @@ mod risk;
 mod risk_config;
 mod system_provider;
 mod tokenizer;
+mod updater;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -32,6 +33,7 @@ enum Commands {
     SimulateProposed { command: String },
     Dashboard,
     Doctor,
+    Upgrade,
 }
 
 fn scan_command() -> Result<models::SystemState, String> {
@@ -113,6 +115,12 @@ async fn main() {
         Commands::Doctor => {
             if let Err(e) = doctor::doctor() {
                 eprintln!("Doctor failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Upgrade => {
+            if let Err(e) = updater::upgrade() {
+                eprintln!("Upgrade failed: {}", e);
                 std::process::exit(1);
             }
         }
