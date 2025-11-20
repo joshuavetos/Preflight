@@ -1,4 +1,5 @@
 use crate::{
+    config::RiskConfig,
     models::SystemState,
     risk::{risk_score, summarize_risk},
 };
@@ -13,28 +14,32 @@ use tokio::fs;
 use tower_http::services::ServeDir;
 
 async fn api_state_handler() -> impl IntoResponse {
+    let cfg = match RiskConfig::load() {
+        Ok(c) => c,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    };
+
     let path = PathBuf::from(".preflight/scan.json");
     if !path.exists() {
-        println!("No scan found — auto-running `preflight scan`...");
-        let _ = crate::scanner::perform_scan();
+        return (StatusCode::NOT_FOUND, "Scan file not found. Run `preflight scan` first.")
+            .into_response();
     }
+
     match fs::read_to_string(&path).await {
         Ok(contents) => match serde_json::from_str::<SystemState>(&contents) {
             Ok(state) => {
-                let total_risk = summarize_risk(&state.issues);
-                let issue_breakdown: Vec<(String, u32)> = state
+                let total_risk = summarize_risk(&state.issues, &cfg);
+                let breakdown: Vec<(String, u32)> = state
                     .issues
                     .iter()
-                    .map(|issue| (issue.code.clone(), risk_score(issue)))
+                    .map(|i| (i.code.clone(), risk_score(i, &cfg)))
                     .collect();
 
-                let mut val = serde_json::to_value(&state).expect("state serialize");
-
+                let mut val = serde_json::to_value(&state).unwrap();
                 val["risk_score_total"] = serde_json::json!(total_risk);
-                val["risk_issue_breakdown"] = serde_json::json!(issue_breakdown);
+                val["risk_issue_breakdown"] = serde_json::json!(breakdown);
 
                 let etag_value = format!("W/\"{}-{}\"", state.timestamp, state.version);
-
                 (StatusCode::OK, [(header::ETAG, etag_value)], Json(val)).into_response()
             }
             Err(err) => (
@@ -54,9 +59,8 @@ async fn api_state_handler() -> impl IntoResponse {
 fn dashboard_assets_root() -> Result<PathBuf, String> {
     let mut path = std::env::current_dir().map_err(|e| e.to_string())?;
     path.push("web/dist");
-    let index = path.join("index.html");
-    if !index.exists() {
-        return Err("Dashboard build missing: run `npm install && npm run build` in /web".to_string());
+    if !path.join("index.html").exists() {
+        return Err("Dashboard build missing — run `npm run build` inside /web".to_string());
     }
     Ok(path)
 }
@@ -72,13 +76,11 @@ pub async fn run_dashboard_server() -> Result<(), String> {
         .await
         .map_err(|e| format!("Failed to bind dashboard port {addr}: {e}"))?;
 
-    let url = format!("http://{addr}");
-    println!("Dashboard available at {url}");
+    println!("Dashboard available at http://{addr}");
     println!("Press Ctrl+C to stop the dashboard server.");
 
-    let opener_url = url.clone();
     tokio::spawn(async move {
-        if let Err(err) = open::that(opener_url) {
+        if let Err(err) = open::that(format!("http://{addr}")) {
             eprintln!("Failed to open browser automatically: {err}");
         }
     });
