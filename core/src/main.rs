@@ -4,17 +4,14 @@ mod oracle;
 mod scanner;
 mod server;
 mod utils;
+mod config;
+mod risk;
 mod doctor;
 
 use clap::{Parser, Subcommand};
-use graph::{derive_edges, summarize, DependencyGraph};
-use models::SystemState;
-use oracle::{evaluate, simulate_command};
-use std::path::PathBuf;
-use utils::write_state;
 
 #[derive(Parser)]
-#[command(author, version, about = "Preflight system scanner", long_about = None)]
+#[command(author, version, about = "Preflight system scanner")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -28,18 +25,23 @@ enum Commands {
     Doctor,
 }
 
-fn scan_command() -> Result<SystemState, String> {
+fn scan_command() -> Result<models::SystemState, String> {
     let mut state = scanner::perform_scan();
-    derive_edges(&mut state);
-    state.issues = evaluate(&state);
+    graph::derive_edges(&mut state);
+    state.issues = oracle::evaluate(&state);
     state.assert_contract();
-    let graph = DependencyGraph::from_state(&state);
-    if graph.nodes.is_empty() {
-        return Err("Graph invariant violated: no nodes generated".to_string());
-    }
-    let path = PathBuf::from(".preflight/scan.json");
-    write_state(&path, &state).map_err(|e| format!("Failed to write scan file: {e}"))?;
-    println!("Preflight scan complete. {}", summarize(&state));
+
+    let path = std::path::PathBuf::from(".preflight/scan.json");
+    utils::write_state(&path, &state)
+        .map_err(|e| format!("Failed to write scan: {e}"))?;
+
+    println!(
+        "Preflight scan complete: {} nodes, {} edges, {} issues",
+        state.nodes.len(),
+        state.edges.len(),
+        state.issues.len()
+    );
+
     Ok(state)
 }
 
@@ -47,11 +49,12 @@ fn simulate(command: &str) {
     if !std::path::PathBuf::from(".preflight/scan.json").exists() {
         println!("⚠️  No scan.json found. Run `preflight scan` first.");
     }
-    let issues = simulate_command(command);
+
+    let issues = oracle::simulate_command(command);
     if issues.is_empty() {
-        println!("Simulation successful: no predicted issues for `{command}`.");
+        println!("Simulation successful: no predicted issues.");
     } else {
-        println!("Simulation detected potential issues for `{command}`:");
+        println!("Simulation detected {} potential issues:", issues.len());
         for issue in issues {
             println!(
                 "- [{}] {} ({}): {}",
@@ -67,6 +70,7 @@ fn simulate(command: &str) {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
     match cli.command {
         Commands::Scan => {
             if let Err(e) = scan_command() {
@@ -86,15 +90,6 @@ async fn main() {
                 eprintln!("Doctor failed: {e}");
                 std::process::exit(1);
             }
-        }
-    }
-}
-
-impl ToString for models::Severity {
-    fn to_string(&self) -> String {
-        match self {
-            models::Severity::Critical => "critical".to_string(),
-            models::Severity::Warning => "warning".to_string(),
         }
     }
 }
