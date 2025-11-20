@@ -1,0 +1,12 @@
+{
+  "weights": {
+    "critical": 50,
+    "warning": 20
+  },
+  "issue_overrides": {
+    "PORT_8000_BOUND": 80,
+    "DOCKER_INACTIVE": 40,
+    "SIM_PORT_8000_CONFLICT": 25,
+    "SIM_DOCKER_COMPOSE": 15
+  }
+}
