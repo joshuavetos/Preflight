@@ -89,6 +89,17 @@ header {
   color: #fef3c7;
 }
 
+.error-banner {
+  margin: 0.5rem 1.5rem;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  background: #2f1c1c;
+  color: #fecaca;
+  border: 1px solid #991b1b;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
 main {
   display: grid;
   grid-template-columns: 2fr 1fr;
