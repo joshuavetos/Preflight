@@ -17,6 +17,7 @@ export default function App() {
   const [previousEtag, setPreviousEtag] = useState<string | null>(null);
   const [fadeClass, setFadeClass] = useState("");
   const [lastModified, setLastModified] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const run = async () => {
@@ -31,6 +32,7 @@ export default function App() {
         if (!res.ok) {
           const message = await res.text();
           console.error('Failed to fetch state', res.status, message);
+          setError(`Dashboard failed to load state: ${res.status} ${message}`);
           return;
         }
 
@@ -45,8 +47,10 @@ export default function App() {
 
         setLastModified(newState.timestamp);
         if (newEtag) setPreviousEtag(newEtag);
+        setError(null);
       } catch (err) {
         console.error('Fetch error', err);
+        setError('Dashboard failed to reach the API. Is `preflight dashboard` running?');
       }
     };
     run();
@@ -54,7 +58,10 @@ export default function App() {
     const id = setInterval(async () => {
       try {
         const res = await fetch('/api/mtime', { cache: 'no-cache' });
-        if (!res.ok) return;
+        if (!res.ok) {
+          setError('Dashboard failed to refresh from the API.');
+          return;
+        }
         const body = (await res.json()) as { timestamp?: string };
         if (body.timestamp && body.timestamp !== lastModified) {
           setLastModified(body.timestamp);
@@ -98,6 +105,7 @@ export default function App() {
         </div>
         <div className={badge.className}>{badge.text}</div>
       </header>
+      {error ? <div className="error-banner">{error}</div> : null}
       <main>
         <div className="graph-column">
           <GraphView state={state} />
