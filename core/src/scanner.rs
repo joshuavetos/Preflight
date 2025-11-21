@@ -1,10 +1,9 @@
-use crate::models::{Node, NodeType, Status, SystemState};
+use crate::models::{Node, NodeType, Status, SystemState, DETERMINISTIC_TIMESTAMP};
 use crate::system_provider::{RealSystemProvider, SystemProvider};
-use chrono::Utc;
 use semver::{Version, VersionReq};
 use serde_json::json;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::env;
 
 fn version_satisfies(requirement: &str, actual: &str) -> bool {
@@ -72,7 +71,7 @@ fn detect_python<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
 
     let requirements_path = "requirements.txt";
     let requirements_present = provider.file_exists(requirements_path);
-    let mut requirements = HashMap::new();
+    let mut requirements = BTreeMap::new();
     if requirements_present {
         if let Some(contents) = provider.read_file(requirements_path) {
             for line in contents.lines() {
@@ -88,7 +87,7 @@ fn detect_python<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
         .or_else(|| provider.command_output("python3", &["-m", "pip", "freeze"]))
         .or_else(|| provider.command_output("pip", &["freeze"]))
         .or_else(|| provider.command_output("pip3", &["freeze"]));
-    let mut installed = HashMap::new();
+    let mut installed = BTreeMap::new();
     if let Some(output) = pip_freeze {
         for line in output.lines() {
             if let Some((name, ver)) = line.split_once("==") {
@@ -143,7 +142,7 @@ fn detect_python<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
 
     let lockfile_drift = pipfile_drift || poetry_drift;
 
-    let mut metadata = HashMap::new();
+    let mut metadata = BTreeMap::new();
     if let Some(v) = &version {
         metadata.insert("version".into(), json!(v));
     }
@@ -178,7 +177,7 @@ fn detect_python<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
 }
 
 fn detect_docker<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
-    let mut metadata = HashMap::new();
+    let mut metadata = BTreeMap::new();
     let socket_path = "/var/run/docker.sock";
     metadata.insert("socket".into(), json!(socket_path));
 
@@ -243,7 +242,7 @@ fn detect_docker<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
 fn detect_nodejs<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     let node_version = provider.command_output("node", &["--version"]);
     let npm_version = provider.command_output("npm", &["--version"]);
-    let mut metadata = HashMap::new();
+    let mut metadata = BTreeMap::new();
 
     let package_json_present = provider.file_exists("package.json");
     let node_modules_exists = provider.file_exists("node_modules");
@@ -352,7 +351,7 @@ fn detect_postgres<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
         .map(|l| l.to_string())
         .collect::<Vec<_>>();
     let versions = provider.list_dir("/usr/lib/postgresql").unwrap_or_default();
-    let mut metadata = HashMap::new();
+    let mut metadata = BTreeMap::new();
     metadata.insert("port".into(), json!(5432));
     metadata.insert(
         "port_bound".into(),
@@ -379,6 +378,44 @@ fn detect_postgres<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     });
 }
 
+fn detect_mysql<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
+    let port_status = check_port(provider, 3306);
+    let version = provider
+        .command_output("mysql", &["--version"])
+        .or_else(|| provider.command_output("mysqld", &["--version"]));
+    let processes = provider
+        .command_output("ps", &["aux"])
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.to_lowercase().contains("mysql"))
+        .map(|l| l.to_string())
+        .collect::<Vec<_>>();
+    let mut metadata = BTreeMap::new();
+    metadata.insert("port".into(), json!(3306));
+    metadata.insert(
+        "port_bound".into(),
+        json!(matches!(port_status, Status::Active)),
+    );
+    if let Some(v) = &version {
+        metadata.insert("version".into(), json!(v));
+    }
+    metadata.insert("processes".into(), json!(processes));
+
+    let status = if version.is_some() || matches!(port_status, Status::Active) {
+        Status::Active
+    } else {
+        Status::Inactive
+    };
+
+    nodes.push(Node {
+        id: "mysql".into(),
+        node_type: NodeType::Mysql,
+        label: "MySQL".into(),
+        status,
+        metadata,
+    });
+}
+
 fn detect_redis<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     let port_status = check_port(provider, 6379);
     let version = provider.command_output("redis-server", &["--version"]);
@@ -398,7 +435,7 @@ fn detect_redis<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
             }
         }
     }
-    let mut metadata = HashMap::new();
+    let mut metadata = BTreeMap::new();
     metadata.insert("port".into(), json!(6379));
     metadata.insert(
         "port_bound".into(),
@@ -455,7 +492,7 @@ fn detect_gpu<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
                 })
         })
     });
-    let mut metadata = HashMap::new();
+    let mut metadata = BTreeMap::new();
     if let Some(info) = &gpu_info {
         metadata.insert("nvidia_smi".into(), json!(info));
     }
@@ -496,18 +533,20 @@ fn detect_gpu<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
     });
 }
 
-fn detect_port_8000<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
-    let mut metadata = HashMap::new();
-    metadata.insert("protocol".into(), json!("tcp"));
-    metadata.insert("port".into(), json!(8000));
+fn detect_ports<P: SystemProvider>(provider: &P, nodes: &mut Vec<Node>) {
+    for port in [3000u16, 5173, 8000, 8080].iter() {
+        let mut metadata = BTreeMap::new();
+        metadata.insert("protocol".into(), json!("tcp"));
+        metadata.insert("port".into(), json!(port));
 
-    nodes.push(Node {
-        id: "port8000".into(),
-        node_type: NodeType::Port,
-        label: "Port 8000".into(),
-        status: check_port(provider, 8000),
-        metadata,
-    });
+        nodes.push(Node {
+            id: format!("port{}", port),
+            node_type: NodeType::Port,
+            label: format!("Port {}", port),
+            status: check_port(provider, *port),
+            metadata,
+        });
+    }
 }
 
 pub fn perform_scan() -> SystemState {
@@ -516,22 +555,23 @@ pub fn perform_scan() -> SystemState {
 }
 
 pub fn perform_scan_with_provider<P: SystemProvider>(provider: &P) -> SystemState {
-    let timestamp = Utc::now().to_rfc3339();
+    let timestamp = DETERMINISTIC_TIMESTAMP.to_string();
     let mut nodes = vec![Node {
         id: "os".into(),
         node_type: NodeType::Os,
         label: std::env::consts::OS.into(),
         status: Status::Active,
-        metadata: HashMap::new(),
+        metadata: BTreeMap::new(),
     }];
 
     detect_docker(provider, &mut nodes);
     detect_python(provider, &mut nodes);
     detect_nodejs(provider, &mut nodes);
     detect_postgres(provider, &mut nodes);
+    detect_mysql(provider, &mut nodes);
     detect_redis(provider, &mut nodes);
     detect_gpu(provider, &mut nodes);
-    detect_port_8000(provider, &mut nodes);
+    detect_ports(provider, &mut nodes);
 
     SystemState::new(nodes, Vec::new(), Vec::new(), timestamp)
 }

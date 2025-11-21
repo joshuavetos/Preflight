@@ -100,6 +100,13 @@ fn release() -> Result<()> {
     let bin_dst = release_root.join(bin_name);
     fs::copy(&bin_src, &bin_dst)?;
 
+    let dist_dir = PathBuf::from("dist");
+    if dist_dir.exists() {
+        fs::remove_dir_all(&dist_dir)?;
+    }
+    fs::create_dir_all(&dist_dir)?;
+    fs::copy(&bin_dst, dist_dir.join(bin_name))?;
+
     // 5. Copy dashboard
     let dashboard_src = PathBuf::from("web/dist");
     let dashboard_dst = release_root.join("dashboard");

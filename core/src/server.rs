@@ -8,7 +8,6 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 use tokio::fs;
 use tower_http::services::ServeDir;
@@ -37,7 +36,7 @@ async fn api_state_handler() -> impl IntoResponse {
                 val["risk_score_total"] = serde_json::json!(total_risk);
                 val["risk_issue_breakdown"] = serde_json::json!(breakdown);
 
-                let etag_value = format!("W/\"{}-{}\"", state.timestamp, state.version);
+                let etag_value = format!("W/\"{}-{}\"", state.fingerprint, state.version);
                 (StatusCode::OK, [(header::ETAG, etag_value)], Json(val)).into_response()
             }
             Err(err) => (
@@ -63,14 +62,21 @@ async fn api_mtime_handler() -> impl IntoResponse {
         )
             .into_response();
     }
-    match fs::metadata(&path).await.and_then(|m| m.modified()) {
-        Ok(modified) => {
-            let ts: DateTime<Utc> = modified.into();
-            let payload = serde_json::json!({
-                "timestamp": ts.to_rfc3339(),
-            });
-            (StatusCode::OK, Json(payload)).into_response()
-        }
+    match fs::read_to_string(&path).await {
+        Ok(contents) => match serde_json::from_str::<SystemState>(&contents) {
+            Ok(state) => {
+                let payload = serde_json::json!({
+                    "timestamp": state.timestamp,
+                    "fingerprint": state.fingerprint,
+                });
+                (StatusCode::OK, Json(payload)).into_response()
+            }
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Corrupt scan.json: {err}"),
+            )
+                .into_response(),
+        },
         Err(err) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Unable to read scan metadata: {err}"),
@@ -90,10 +96,12 @@ fn dashboard_assets_root() -> Result<PathBuf, String> {
 
 pub async fn run_dashboard_server() -> Result<(), String> {
     let dist = dashboard_assets_root()?;
+    let dashboard = ServeDir::new(dist).append_index_html_on_directories(true);
     let app = Router::new()
         .route("/api/state", get(api_state_handler))
         .route("/api/mtime", get(api_mtime_handler))
-        .fallback_service(ServeDir::new(dist).append_index_html_on_directories(true));
+        .nest_service("/dashboard", dashboard.clone())
+        .fallback_service(dashboard);
 
     let addr = "127.0.0.1:8787";
     let listener = tokio::net::TcpListener::bind(addr)

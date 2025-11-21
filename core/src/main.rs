@@ -2,6 +2,7 @@ mod graph;
 mod models;
 mod oracle;
 mod scanner;
+mod schema;
 mod server;
 mod utils;
 mod validate;
@@ -91,12 +92,18 @@ fn scan_command(remote: Option<String>, json_output: bool) -> Result<models::Sys
         let mut local_state = scanner::perform_scan();
         graph::derive_edges(&mut local_state);
         local_state.issues = oracle::evaluate(&local_state);
+        local_state.refresh_fingerprint();
         local_state.assert_contract();
+        schema::validate_against_contract(&local_state)
+            .map_err(|e| format!("Schema validation failed: {e}"))?;
         let path = PathBuf::from(".preflight/scan.json");
         utils::write_state(&path, &local_state)
             .map_err(|e| format!("Failed to write scan: {}", e))?;
         local_state
     };
+
+    schema::validate_against_contract(&state)
+        .map_err(|e| format!("Schema validation failed: {e}"))?;
 
     history::record_scan(&state)?;
     if json_output {

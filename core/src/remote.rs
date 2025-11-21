@@ -2,6 +2,7 @@ use crate::graph;
 use crate::models::SystemState;
 use crate::oracle;
 use crate::scanner;
+use crate::schema;
 use crate::system_provider::SystemProvider;
 use crate::utils;
 use std::process::Command;
@@ -89,7 +90,10 @@ pub fn remote_scan(remote: &str) -> Result<SystemState, String> {
     }
     graph::derive_edges(&mut state);
     state.issues = oracle::evaluate(&state);
+    state.refresh_fingerprint();
     state.assert_contract();
+    schema::validate_against_contract(&state)
+        .map_err(|e| format!("Schema validation failed: {e}"))?;
     let path = std::path::PathBuf::from(".preflight/scan.json");
     utils::write_state(&path, &state).map_err(|e| format!("Failed to write scan: {}", e))?;
     Ok(state)

@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build release
+        run: cargo build --release --locked
+      - name: Run tests
+        run: cargo test --all --locked
+      - name: Checksum binary
+        run: |
+          mkdir -p dist
+          cp target/release/preflight dist/preflight-linux-x86_64
+          sha256sum dist/preflight-linux-x86_64 > dist/preflight-linux-x86_64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preflight-linux-x86_64
+          path: dist/
+
+  dist-matrix:
+    needs: test-linux
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: preflight-linux-x86_64
+            binary: preflight
+            target: x86_64-unknown-linux-gnu
+            checksum: sha256sum
+          - os: macos-13
+            artifact: preflight-macos-x86_64
+            binary: preflight
+            target: x86_64-apple-darwin
+            checksum: shasum -a 256
+          - os: macos-14
+            artifact: preflight-macos-arm64
+            binary: preflight
+            target: aarch64-apple-darwin
+            checksum: shasum -a 256
+          - os: windows-latest
+            artifact: preflight-windows-x86_64
+            binary: preflight.exe
+            target: x86_64-pc-windows-msvc
+            checksum: powershell
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+      - name: Build release
+        run: cargo build --release --locked
+      - name: Collect artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          BIN_NAME="${{ matrix.binary }}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/release/${BIN_NAME} dist/${BIN_NAME}
+          else
+            cp target/release/${BIN_NAME} dist/${BIN_NAME}
+          fi
+      - name: Checksum
+        shell: bash
+        run: |
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            powershell -Command "Get-FileHash ${{ matrix.binary }} -Algorithm SHA256 | ForEach-Object { $_.Hash }" > preflight.sha256
+          else
+            ${{ matrix.checksum }} ${{ matrix.binary }} > preflight.sha256
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/

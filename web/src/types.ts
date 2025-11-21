@@ -7,6 +7,7 @@ export type NodeType =
   | 'file'
   | 'python'
   | 'postgres'
+  | 'mysql'
   | 'redis'
   | 'gpu'
   | 'dockerimages';
@@ -44,4 +45,5 @@ export interface SystemState {
   risk_issue_breakdown: [string, number][];
   version: string;
   timestamp: string;
+  fingerprint: string;
 }

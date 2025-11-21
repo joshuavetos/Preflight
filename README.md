@@ -1,64 +1,70 @@
 # Preflight
 
-## What Preflight Is
-Preflight is a deterministic system scanner and dashboard feed. The Rust CLI inspects your host for Docker, Node.js, databases, GPUs, and common port conflicts, then writes a reproducible JSON contract under `.preflight/scan.json`. The bundled dashboard server (Axum + Vite build artifacts) reads the same contract to visualize nodes, edges, and issues without diverging logic.
+Preflight is a deterministic system scanner and dashboard. The Rust CLI inspects the host for Docker, runtimes, databases, GPUs, and common port conflicts, then writes a canonical JSON contract at `.preflight/scan.json`. The Axum-powered dashboard reads that same contract and serves the built Vite bundle from `/dashboard/` so the UI and CLI never diverge.
 
 ## Installation
-- Install the CLI from source:
-  ```bash
-  cargo install --path core --locked
-  ```
-- Build the dashboard bundle (served by `preflight dashboard`):
-  ```bash
-  cd web
-  npm install
-  npm run build
-  ```
-  Return to the repo root after the build so the CLI can find `web/dist`.
 
-## Commands
-All commands accept the global `--json` flag to emit structured envelopes for automation.
+1. Install the Rust CLI directly from the workspace:
+   ```bash
+   cargo install --path core --locked
+   ```
+2. Build the dashboard bundle so `preflight dashboard` can serve it:
+   ```bash
+   cd web
+   npm install
+   npm run build
+   cd ..
+   ```
 
-- `scan`: Collects system facts, derives graph edges, writes `.preflight/scan.json`, and records history under `.preflight/history`.
-- `doctor`: Checks for required tools and summarizes known issues with fixability hints.
-- `deps`: Produces a dependency graph of services discovered during scanning.
-- `analyze`: Runs root-cause analysis over recorded issues and suggests fixes.
-- `validate`: Verifies the current system state matches Preflight's internal contract invariants.
-- `validate-env`: Loads `.preflight.yml` and compares environment expectations (Docker API/Compose, Node.js, GPU policy) against the latest scan.
-- `security`: Performs security-oriented checks (ports, Docker, shell history) against the collected state.
-- `export --format <mermaid|graphviz>`: Renders the latest graph in the chosen format to stdout for downstream visualization.
-- `share --out <path.zip>`: Builds a portable bundle containing scan output, dependency graph, analysis results, validate-env results, and scan history.
-- `upgrade`: Fetches the latest GitHub release tagged with a SemVer version, downloads the platform binary, and atomically replaces the current executable when a newer version exists.
+## Running the scanner
 
-Additional helpers include `dashboard` (serves the UI), `watch` (continuously scans), `snapshot` save/restore, and `fix` suggestions; they also honor `--json` where applicable.
+Perform a local scan and write the canonical contract:
+```bash
+preflight scan
+```
 
-## Dashboard Usage
-Run `preflight dashboard` after performing a scan. The server serves static assets from `web/dist` and responds on `http://127.0.0.1:8787` with:
-- `/api/state`: the live JSON contract derived from `.preflight/scan.json`.
-- `/`: the React UI that renders the graph and issue list.
+Useful flags:
+- `--json` — wrap command output in a deterministic JSON envelope.
+- `preflight scan --json` — emit scan results to stdout while also persisting `.preflight/scan.json`.
 
-If the dashboard bundle is missing, the CLI will tell you to build it from the `web` directory.
+The scan pipeline detects:
+- Docker daemon availability and Compose metadata.
+- Node.js and npm versions plus dependency drift.
+- Python versions and dependency drift across `requirements.txt`, Pipenv, and Poetry.
+- Database availability for PostgreSQL, MySQL, and Redis (including open ports and running processes).
+- GPU presence via `nvidia-smi`, `lspci`, CUDA, and cuDNN headers.
+- Port conflicts for 3000, 5173, 8000, and 8080.
 
-## Environment-as-code (.preflight.yml)
-Define expected Docker API/Compose versions, minimum Node.js versions, and GPU policy in `.preflight.yml`. Running `preflight validate-env` compares those requirements against the latest scan data, reporting violations both in the terminal and as `.preflight/validate_env.json` when JSON mode is enabled.
+All nodes, edges, and issues are normalized and fingerprinted to ensure identical output on identical machines. JSON keys are alphabetized before writing.
 
-## Bundle Export Workflow
-1. Run `preflight scan` to capture the current state.
-2. Optionally run `preflight deps`, `preflight analyze`, and `preflight validate-env` to refresh derived artifacts.
-3. Package everything with `preflight share --out preflight-bundle.zip`. The bundle includes the scan contract, dependency graph, analysis output, environment validation results, and scan history for transport or archival.
+## Dashboard
 
-## Examples with JSON Output
-- Scan with machine-readable output:
-  ```bash
-  preflight scan --json
-  ```
-- Validate environment expectations:
-  ```bash
-  preflight validate-env --json
-  ```
-- Perform an in-place upgrade when a newer SemVer tag exists:
-  ```bash
-  preflight upgrade --json
-  ```
+After building the dashboard bundle, serve it with:
+```bash
+preflight dashboard
+```
 
-The JSON envelopes include the command name, status, timestamp, and data payloads to simplify scripting and dashboards.
+The Axum server mounts the dashboard at `http://127.0.0.1:8787/dashboard/` and exposes:
+- `GET /api/state` — the parsed `.preflight/scan.json` contract with risk scores.
+- `GET /api/mtime` — the deterministic timestamp and fingerprint for cache busting.
+
+The Vite build uses the `/dashboard/` base path, and all static assets are embedded from `web/dist`.
+
+## Shared contract
+
+The CLI and dashboard share `scan.schema.json` (schema version `1.0.0`). Every scan is validated against this schema at runtime, guaranteeing that the dashboard and any downstream tooling consume the same strict contract. The schema requires concrete typing for nodes, edges, issues, version, timestamp, and fingerprint.
+
+## Determinism rules
+
+- No wall-clock timestamps: timestamps are fixed, and a SHA-256 fingerprint summarizes the state.
+- Maps use ordered serialization and are written with alphabetized JSON keys for reproducible diffs.
+- Fingerprints are recomputed after graph derivation and issue evaluation to stabilize repeated runs.
+
+## Release artifacts
+
+GitHub Actions builds run `cargo build --release` and `cargo test --all`, checksum the resulting binary, and upload artifacts. A matrix build publishes platform-specific binaries to `dist/` for:
+- Linux x86_64
+- macOS x86_64
+- macOS ARM64
+- Windows x86_64
+
