@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tessrax.example/preflight/scan.schema.json",
+  "title": "Preflight System Scan",
+  "type": "object",
+  "required": ["nodes", "edges", "issues", "version", "timestamp", "fingerprint"],
+  "additionalProperties": false,
+  "properties": {
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "label", "status", "metadata"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": {
+            "type": "string",
+            "enum": [
+              "os",
+              "service",
+              "runtime",
+              "application",
+              "port",
+              "file",
+              "python",
+              "postgres",
+              "mysql",
+              "redis",
+              "gpu",
+              "dockerimages"
+            ]
+          },
+          "label": { "type": "string", "minLength": 1 },
+          "status": { "type": "string", "enum": ["active", "inactive", "conflict"] },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "relation"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "relation": { "type": "string", "enum": ["REQUIRES", "BINDS", "CONFLICTS"] }
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "title", "description", "suggestion"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "severity": { "type": "string", "enum": ["critical", "warning"] },
+          "title": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 0 },
+          "suggestion": { "type": "string", "minLength": 0 }
+        }
+      }
+    },
+    "version": { "type": "string", "const": "1.0.0" },
+    "timestamp": { "type": "string" },
+    "fingerprint": { "type": "string", "minLength": 1 }
+  }
+}

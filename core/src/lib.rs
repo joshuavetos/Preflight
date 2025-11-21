@@ -14,6 +14,7 @@ pub mod remote;
 pub mod risk;
 pub mod risk_config;
 pub mod scanner;
+pub mod schema;
 pub mod security;
 pub mod server;
 pub mod share;

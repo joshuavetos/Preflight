@@ -14,7 +14,7 @@ fn history_dir() -> PathBuf {
 pub fn record_scan(state: &SystemState) -> Result<(), String> {
     let dir = history_dir();
     fs::create_dir_all(&dir).map_err(|e| format!("Unable to create history dir: {e}"))?;
-    let filename = format!("scan-{}.json", state.timestamp.replace(':', "-"));
+    let filename = format!("scan-{}.json", state.fingerprint);
     let path = dir.join(filename);
     utils::write_state(&path, state).map_err(|e| format!("Unable to persist history: {e}"))?;
     prune_history()?;

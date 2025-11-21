@@ -1,8 +1,8 @@
-use crate::models::SystemState;
-use chrono::Utc;
+use crate::models::{SystemState, DETERMINISTIC_TIMESTAMP};
 use fs2::FileExt;
 use serde_json::json;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
@@ -14,7 +14,8 @@ pub fn write_state(path: &Path, state: &SystemState) -> Result<(), std::io::Erro
     let tmp_path = path.with_extension("json.tmp");
     let mut file = File::create(&tmp_path)?;
     file.lock_exclusive()?;
-    let serialized = serde_json::to_string_pretty(state)
+    let canonical = sort_json(serde_json::to_value(state).expect("state serializable"));
+    let serialized = serde_json::to_string_pretty(&canonical)
         .expect("serialization invariant: SystemState must be serializable");
     file.write_all(serialized.as_bytes())?;
     file.sync_all()?;
@@ -46,7 +47,25 @@ pub fn json_envelope(command: &str, status: &str, data: Value) -> Value {
     json!({
         "command": command,
         "status": status,
-        "timestamp": Utc::now().to_rfc3339(),
+        "timestamp": DETERMINISTIC_TIMESTAMP,
         "data": data
     })
+}
+
+fn sort_json(value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut ordered = BTreeMap::new();
+            for (k, v) in map {
+                ordered.insert(k, sort_json(v));
+            }
+            let mut new_map = serde_json::Map::new();
+            for (k, v) in ordered {
+                new_map.insert(k, v);
+            }
+            Value::Object(new_map)
+        }
+        Value::Array(arr) => Value::Array(arr.into_iter().map(sort_json).collect()),
+        other => other,
+    }
 }

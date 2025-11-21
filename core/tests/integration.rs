@@ -3,10 +3,11 @@ use preflight::deps;
 use preflight::models::{Node, NodeType, Status, SystemState};
 use preflight::oracle;
 use preflight::scanner;
+use preflight::schema;
 use preflight::system_provider::SystemProvider;
 use preflight::validate;
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::time::{Duration, SystemTime};
 use tempfile::tempdir;
@@ -141,8 +142,16 @@ fn gpu_vendor_detection_marks_metadata() {
 }
 
 #[test]
+fn gpu_detector_defaults_to_inactive_without_tools() {
+    let provider = MockProvider::new();
+    let state = scanner::perform_scan_with_provider(&provider);
+    let gpu = state.nodes.iter().find(|n| n.id == "gpu").unwrap();
+    assert!(matches!(gpu.status, Status::Inactive));
+}
+
+#[test]
 fn docker_compose_drift_issue_triggered() {
-    let mut metadata = HashMap::new();
+    let mut metadata = BTreeMap::new();
     metadata.insert("compose_version".into(), serde_json::json!("3.9"));
     metadata.insert("docker_api_version".into(), serde_json::json!("1.20"));
     let docker = Node {
@@ -157,7 +166,7 @@ fn docker_compose_drift_issue_triggered() {
         node_type: NodeType::Os,
         label: "linux".into(),
         status: Status::Active,
-        metadata: HashMap::new(),
+        metadata: BTreeMap::new(),
     };
     let state = SystemState::new(vec![os, docker], vec![], vec![], "now".into());
     let issues = oracle::evaluate(&state);
@@ -171,6 +180,24 @@ fn docker_compose_drift_issue_triggered() {
 fn dependency_graph_reports_modules() {
     let graph = deps::collect_graph().expect("graph should generate");
     assert!(!graph.0.is_empty());
+}
+
+#[test]
+fn schema_validation_accepts_scans() {
+    let state = scanner::perform_scan();
+    schema::validate_against_contract(&state).expect("scan should satisfy schema");
+}
+
+#[test]
+fn port_scanner_emits_expected_ports() {
+    let state = scanner::perform_scan();
+    for port in [3000, 5173, 8000, 8080] {
+        assert!(
+            state.nodes.iter().any(|n| n.id == format!("port{}", port)),
+            "port {} node should be present",
+            port
+        );
+    }
 }
 
 #[test]
