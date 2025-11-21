@@ -4,13 +4,17 @@ use serde_json::json;
 
 /// Deep clone of SystemState
 pub fn clone_state(original: &SystemState) -> SystemState {
-    SystemState {
+    let mut cloned = SystemState {
         nodes: original.nodes.clone(),
         edges: original.edges.clone(),
         issues: original.issues.clone(),
         version: original.version.clone(),
         timestamp: original.timestamp.clone(),
-    }
+        fingerprint: original.fingerprint.clone(),
+    };
+
+    cloned.refresh_fingerprint();
+    cloned
 }
 
 /// Apply "predicted changes" based on ParsedCommand.
